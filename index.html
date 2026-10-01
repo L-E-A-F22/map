@@ -346,15 +346,113 @@ tailwind.config = {
           <canvas class="w-full h-full block cursor-crosshair relative z-10" id="vector-map-canvas"></canvas>
 
           <!-- Floating Map Layer Selector HUD (Top Right) -->
+          <div id="map-telemetry" class="absolute bottom-4 left-6 bg-surface-container-low/90 backdrop-blur-md p-space-sm rounded-xl shadow-xl z-30 font-code-telemetry text-code-telemetry text-on-surface-variant border border-surface-container-highest hidden">
+            <div class="flex items-center gap-2 mb-1"><span class="h-1.5 w-1.5 rounded-full bg-secondary"></span><span class="uppercase text-outline">OSM GRAPH TELEMETRY</span></div>
+            <div class="flex justify-between gap-6"><span>NODES:</span><span class="text-primary" id="map-node-count">--</span></div>
+            <div class="flex justify-between gap-6"><span>EDGES:</span><span class="text-primary" id="map-edge-count">--</span></div>
+            <div class="flex justify-between gap-6"><span>LAYER:</span><span class="text-secondary" id="map-layer-state">VECTOR GRAPH</span></div>
+          </div>
+
+          <div class="absolute bottom-2 right-3 z-30 font-code-telemetry text-[9px] text-outline bg-surface-container-low/70 px-1.5 py-0.5 rounded">
+            © OpenStreetMap contributors
+          </div>
+
           <div class="absolute top-4 right-6 bg-surface-container-low/90 backdrop-blur-md p-space-sm rounded-xl flex items-center gap-space-sm shadow-xl z-30 font-label-md text-label-md border border-surface-container-highest">
-            <button class="px-space-sm py-1 rounded bg-primary-container text-on-primary-container font-semibold transition-colors flex items-center gap-1 shadow-sm">
+            <button id="btn-vector-graph" onclick="window.VectorNav.setMapLayer('VECTOR')" class="px-space-sm py-1 rounded bg-primary-container text-on-primary-container font-semibold transition-colors flex items-center gap-1 shadow-sm">
               <span class="material-symbols-outlined text-[14px]">map</span>
               <span>Vector Graph</span>
             </button>
-            <button class="px-space-sm py-1 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors flex items-center gap-1">
+            <button id="btn-osm-nodes" onclick="window.VectorNav.setMapLayer('NODES')" class="px-space-sm py-1 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors flex items-center gap-1">
               <span class="material-symbols-outlined text-[14px]">grid_4x4</span>
               <span>OSM Nodes</span>
             </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="w-full h-full relative flex overflow-hidden hidden" id="view-traffic-intelligence">
+        <div class="w-[420px] flex-shrink-0 h-full bg-surface-container-low flex flex-col z-20 overflow-y-auto shadow-2xl border-r border-surface-container-highest custom-scroll">
+          <div class="p-space-md bg-surface-container flex flex-col gap-1.5 shadow-sm border-b border-surface-container-highest">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-primary text-[20px]">traffic</span>
+                <span class="font-headline-md text-headline-md tracking-tight uppercase text-on-surface">Traffic Intel</span>
+              </div>
+              <span class="font-label-sm text-label-sm text-secondary px-2 py-0.5 rounded bg-secondary/10 tracking-wider uppercase font-semibold">LIVE SIM</span>
+            </div>
+            <p class="font-body-sm text-body-sm text-on-surface-variant">Real-time congestion injection with weighted A* re-routing deltas.</p>
+          </div>
+
+          <div class="p-space-md flex flex-col gap-space-md">
+            <div class="flex flex-col gap-1.5">
+              <span class="font-label-sm text-label-sm uppercase text-outline">Route Segment</span>
+              <select id="traffic-segment-select" class="w-full h-10 px-space-md bg-surface-container-lowest text-on-surface font-body-md rounded-lg focus:outline-none focus:ring-1 focus:ring-primary border border-surface-container-highest"></select>
+              <span id="traffic-segment-note" class="font-code-telemetry text-code-telemetry text-outline">Calculate a route first to populate road segments.</span>
+            </div>
+
+            <div class="flex flex-col gap-1.5">
+              <span class="font-label-sm text-label-sm uppercase text-outline">Congestion Multiplier</span>
+              <div class="grid grid-cols-3 gap-space-xs">
+                <button id="traffic-free" onclick="window.VectorNav.setTrafficLevel('FREE')" class="p-2 rounded-lg bg-surface-container text-center border border-primary shadow-sm">
+                  <div class="font-label-md text-label-md text-secondary font-semibold uppercase">Free</div>
+                  <div class="font-code-telemetry text-code-telemetry text-outline">1.00×</div>
+                </button>
+                <button id="traffic-moderate" onclick="window.VectorNav.setTrafficLevel('MODERATE')" class="p-2 rounded-lg bg-surface-container-lowest text-center border border-transparent hover:bg-surface-container-high">
+                  <div class="font-label-md text-label-md text-tertiary font-semibold uppercase">Moderate</div>
+                  <div class="font-code-telemetry text-code-telemetry text-outline">1.35×</div>
+                </button>
+                <button id="traffic-gridlock" onclick="window.VectorNav.setTrafficLevel('GRIDLOCK')" class="p-2 rounded-lg bg-surface-container-lowest text-center border border-transparent hover:bg-surface-container-high">
+                  <div class="font-label-md text-label-md text-error font-semibold uppercase">Gridlock</div>
+                  <div class="font-code-telemetry text-code-telemetry text-outline">3.00×</div>
+                </button>
+              </div>
+            </div>
+
+            <button id="btn-inject-traffic" onclick="window.VectorNav.injectTraffic()" class="w-full h-10 bg-primary-container hover:bg-primary text-on-primary font-headline-md text-headline-md rounded-lg flex items-center justify-center gap-2 shadow-lg transition-all active:scale-[0.98]">
+              <span class="material-symbols-outlined text-[18px]">dynamic_feed</span>
+              <span>Inject &amp; Re-route</span>
+            </button>
+
+            <div class="bg-surface-container-lowest p-space-md rounded-xl flex flex-col gap-space-sm shadow-md border border-surface-container-highest">
+              <div class="flex items-center justify-between">
+                <span class="font-headline-md text-headline-md text-on-surface font-semibold">A* Re-routing Delta</span>
+                <span id="traffic-status-badge" class="px-2 py-0.5 rounded font-label-sm text-label-sm uppercase bg-surface-container border border-surface-container-highest text-secondary font-semibold">READY</span>
+              </div>
+              <div class="grid grid-cols-2 gap-space-xs">
+                <div class="bg-surface-container-low rounded-lg p-2 border border-surface-container-highest">
+                  <span class="font-label-sm text-label-sm uppercase text-outline">Baseline</span>
+                  <div id="traffic-base-time" class="font-headline-md text-headline-md text-primary font-bold">-- min</div>
+                  <div id="traffic-base-dist" class="font-code-telemetry text-code-telemetry text-outline">-- km</div>
+                </div>
+                <div class="bg-surface-container-low rounded-lg p-2 border border-surface-container-highest">
+                  <span class="font-label-sm text-label-sm uppercase text-outline">Dynamic</span>
+                  <div id="traffic-new-time" class="font-headline-md text-headline-md text-primary font-bold">-- min</div>
+                  <div id="traffic-new-dist" class="font-code-telemetry text-code-telemetry text-outline">-- km</div>
+                </div>
+              </div>
+              <div class="p-2 rounded bg-surface-container flex flex-col gap-1.5 font-code-telemetry text-code-telemetry text-on-surface-variant border border-surface-container-highest">
+                <div class="flex justify-between border-b border-surface-container-highest pb-1"><span>TIME DELTA:</span><span id="traffic-time-delta" class="text-secondary">--</span></div>
+                <div class="flex justify-between border-b border-surface-container-highest pb-1"><span>DIST DELTA:</span><span id="traffic-dist-delta" class="text-secondary">--</span></div>
+                <div class="flex justify-between"><span>WEIGHT:</span><span id="traffic-weight" class="text-secondary">1.00×</span></div>
+              </div>
+            </div>
+
+            <div class="p-2 rounded bg-surface-container flex items-center gap-2 font-code-telemetry text-code-telemetry text-on-surface-variant border border-surface-container-highest">
+              <span class="h-2 w-2 rounded-full bg-secondary animate-pulse"></span>
+              <span id="traffic-live-message">Traffic engine armed. Select a segment and inject a multiplier.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex-1 h-full relative bg-surface-container-lowest overflow-hidden">
+          <div class="absolute inset-0 opacity-10" style="background-image: radial-gradient(#3d494c 1px, transparent 1px); background-size: 24px 24px;"></div>
+          <canvas class="w-full h-full block cursor-crosshair relative z-10" id="traffic-map-canvas"></canvas>
+          <div class="absolute top-4 right-6 bg-surface-container-low/90 backdrop-blur-md p-space-sm rounded-xl flex items-center gap-space-sm shadow-xl z-30 font-label-md text-label-md border border-surface-container-highest">
+            <span class="h-1.5 w-1.5 rounded-full bg-secondary"></span>
+            <span class="uppercase text-secondary">Congestion Injection Studio</span>
+          </div>
+          <div class="absolute bottom-2 right-3 z-30 font-code-telemetry text-[9px] text-outline bg-surface-container-low/70 px-1.5 py-0.5 rounded">
+            © OpenStreetMap contributors
           </div>
         </div>
       </section>
@@ -371,6 +469,13 @@ tailwind.config = {
   window.VectorNav = {
     mode: 'DRIVE',
     objective: 'TIME',
+    mapLayer: 'VECTOR',
+    currentRouteData: null,
+    trafficLevel: 'FREE',
+    trafficMultiplier: 1,
+    trafficAlternative: null,
+    trafficBaseline: null,
+    trafficSegments: [],
     
     // State to hold actual coordinates behind the scenes
     origin: { name: 'Chennai Central (MAS)', lat: 13.0827, lng: 80.2707 },
@@ -380,8 +485,10 @@ tailwind.config = {
 
     init: function() {
       this.initCanvases();
+      this.initTrafficStudio();
       this.setupGeocoding('origin');
       this.setupGeocoding('destination');
+      this.initSidebarNavigation();
       
       // Simulate live network ping
       setInterval(() => {
@@ -422,50 +529,56 @@ tailwind.config = {
     },
 
     fetchGeocode: function(query, type, dropdown) {
-      // Using OpenStreetMap Nominatim API (Free, No API Key needed)
-      // Including a standard header as required by their Acceptable Use Policy
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=6&addressdetails=1`;
+      // Photon is built for OpenStreetMap data and supports search-as-you-type.
+      // The public Nominatim service does not permit client-side autocomplete.
+      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=6`;
 
-      fetch(url, {
-        headers: {
-          'Accept-Language': 'en-US,en;q=0.9',
-          // Note: Browsers handle User-Agent, but adding generic Accept helps parsing
-        }
+      fetch(url, { headers: { 'Accept-Language': 'en-US,en;q=0.9' } })
+      .then(res => {
+        if (!res.ok) throw new Error('Geocoder HTTP ' + res.status);
+        return res.json();
       })
-      .then(res => res.json())
       .then(data => {
         dropdown.innerHTML = '';
-        if (data.length === 0) {
+        const features = Array.isArray(data.features) ? data.features : [];
+        if (!features.length) {
           dropdown.innerHTML = `<div class="p-3 text-center text-on-surface-variant font-code-telemetry text-[11px]">No matching coordinates found.</div>`;
           return;
         }
 
-        data.forEach(place => {
+        features.forEach(feature => {
+          const props = feature.properties || {};
+          const coords = feature.geometry && feature.geometry.coordinates;
+          if (!Array.isArray(coords) || coords.length < 2) return;
+
+          const lng = Number(coords[0]);
+          const lat = Number(coords[1]);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+          const namePart = props.name || props.street || props.city || props.county || 'Map Location';
+          const contextPart = [props.street, props.city, props.state, props.country]
+            .filter(Boolean)
+            .filter((v, i, a) => a.indexOf(v) === i && v !== namePart)
+            .slice(0,2)
+            .join(', ') || 'Geographic Node';
+
           const btn = document.createElement('button');
           btn.className = "w-full text-left px-3 py-2.5 hover:bg-surface-container hover:text-primary transition-colors border-b border-surface-container-highest last:border-0 focus:outline-none focus:bg-surface-container group";
-          
-          const namePart = place.display_name.split(',')[0];
-          const contextPart = place.display_name.split(',').slice(1, 3).join(',').trim();
-          
           btn.innerHTML = `
-            <div class="font-body-sm font-medium text-on-surface group-hover:text-primary truncate">${namePart}</div>
-            <div class="font-code-telemetry text-[9px] text-outline truncate mt-0.5">${contextPart || 'Geographic Node'}</div>
-            <div class="font-code-telemetry text-[8px] text-secondary mt-0.5 opacity-50">${parseFloat(place.lat).toFixed(4)}, ${parseFloat(place.lon).toFixed(4)}</div>
+            <div class="font-body-sm font-medium text-on-surface group-hover:text-primary truncate">${this.escapeHtml(namePart)}</div>
+            <div class="font-code-telemetry text-[9px] text-outline truncate mt-0.5">${this.escapeHtml(contextPart)}</div>
+            <div class="font-code-telemetry text-[8px] text-secondary mt-0.5 opacity-50">${lat.toFixed(4)}, ${lng.toFixed(4)}</div>
           `;
-
           btn.onclick = () => {
-            this.selectLocation(type, {
-              name: namePart,
-              lat: parseFloat(place.lat),
-              lng: parseFloat(place.lon)
-            });
+            this.selectLocation(type, { name: namePart, lat, lng });
             dropdown.classList.add('hidden');
           };
           dropdown.appendChild(btn);
         });
       })
       .catch(err => {
-        dropdown.innerHTML = `<div class="p-3 text-center text-error font-code-telemetry text-[11px]">Network Error: Could not reach OSM.</div>`;
+        console.warn('OSM geocoding request failed:', err);
+        dropdown.innerHTML = `<div class="p-3 text-center text-error font-code-telemetry text-[11px]">Network Error: Could not reach OSM geocoder.</div>`;
       });
     },
 
@@ -543,14 +656,13 @@ tailwind.config = {
       errAlert.classList.add('hidden');
       resCard.classList.add('hidden');
 
-      // Validate coordinates exist
-      if (!this.origin.lat || !this.destination.lat) {
+      if (!Number.isFinite(this.origin.lat) || !Number.isFinite(this.origin.lng) ||
+          !Number.isFinite(this.destination.lat) || !Number.isFinite(this.destination.lng)) {
         errAlert.innerText = "Error: Please select valid origin and destination locations from the autocomplete dropdown.";
         errAlert.classList.remove('hidden');
         return;
       }
 
-      // Prepare Payload for Google Apps Script
       const payload = {
         source: { lat: this.origin.lat, lng: this.origin.lng },
         destination: { lat: this.destination.lat, lng: this.destination.lng },
@@ -561,32 +673,42 @@ tailwind.config = {
         heuristicWeight: 1
       };
 
-      // UI Loading state
       btn.disabled = true;
       btn.classList.add('opacity-80', 'cursor-not-allowed');
       icon.innerText = 'sync';
       icon.classList.add('spinner');
       text.innerText = 'Fetching Graph & Computing...';
 
-      // Call the User's Provided Backend URL
       fetch(APPS_SCRIPT_URL, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'text/plain;charset=utf-8' // Bypasses strict CORS preflight on Google Apps Script
-        },
-        body: JSON.stringify({ action: 'calculateRoute', payload: payload })
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'calculateRoute', payload })
       })
       .then(r => r.json())
       .then(res => {
         if (!res.success) throw new Error(res.error || 'Backend calculation failed.');
-        this.displayResults(res.data);
+        const data = res.data || {};
+        const route = data.route || {};
+        if (Array.isArray(route.routeCoordinates) && route.routeCoordinates.length >= 2) {
+          this.displayResults(data);
+          return null;
+        }
+
+        return this.fetchOSMRoute(payload).then(osmData => {
+          const merged = Object.assign({}, data, {
+            route: Object.assign({}, route, osmData.route)
+          });
+          this.displayResults(merged);
+        });
       })
       .catch(err => {
-        // Fallback for demo/CORS block scenarios during testing
-        console.warn("Fetch failed, generating local mathematical fallback for UI rendering.", err);
-        setTimeout(() => {
-           this.displayResults(this.generateFallbackMock(payload));
-        }, 800);
+        console.warn("Backend route request failed; resolving route geometry from OSM:", err);
+        return this.fetchOSMRoute(payload)
+          .then(data => this.displayResults(data))
+          .catch(osmErr => {
+            console.warn("OSM route request failed; using local fallback:", osmErr);
+            this.displayResults(this.generateFallbackMock(payload));
+          });
       })
       .finally(() => {
         btn.disabled = false;
@@ -597,10 +719,89 @@ tailwind.config = {
       });
     },
 
+    fetchOSMRoute: function(req) {
+      // Real road geometry from OpenStreetMap via OSRM.
+      const url = `https://router.project-osrm.org/route/v1/driving/${req.source.lng},${req.source.lat};${req.destination.lng},${req.destination.lat}?overview=full&geometries=geojson&steps=true`;
+
+      return fetch(url)
+        .then(r => {
+          if (!r.ok) throw new Error('Routing HTTP ' + r.status);
+          return r.json();
+        })
+        .then(data => {
+          if (data.code !== 'Ok' || !data.routes || !data.routes.length) throw new Error('No OSM route found.');
+
+          const route = data.routes[0];
+          const coords = Array.isArray(route.geometry?.coordinates)
+            ? route.geometry.coordinates
+                .map(p => [Number(p[1]), Number(p[0])])
+                .filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]))
+            : [];
+          if (coords.length < 2) throw new Error('OSM route geometry unavailable.');
+
+          const modeFactor = req.mode === 'WALK' ? 3.8 : req.mode === 'CYCLE' ? 2.1 : 1;
+          const distanceKm = route.distance / 1000;
+          const travelMin = (route.duration / 60) * modeFactor;
+
+          const segments = [];
+          if (route.legs && route.legs[0] && Array.isArray(route.legs[0].steps)) {
+            route.legs[0].steps.forEach(step => {
+              const maneuver = step.maneuver || {};
+              segments.push({
+                instruction: this.formatManeuver(maneuver, step.name || 'mapped road'),
+                road: step.name || 'mapped road',
+                distanceKm: (step.distance / 1000).toFixed(2)
+              });
+            });
+          }
+          if (!segments.length) {
+            segments.push(
+              { instruction: 'Follow the mapped road network', distanceKm: (distanceKm * 0.55).toFixed(2) },
+              { instruction: 'Continue along the optimal corridor', distanceKm: (distanceKm * 0.30).toFixed(2) },
+              { instruction: 'Arrive at destination', distanceKm: (distanceKm * 0.15).toFixed(2) }
+            );
+          }
+
+          return {
+            route: {
+              travelMin: travelMin.toFixed(0),
+              distanceKm: distanceKm.toFixed(1),
+              trafficLevel: document.getElementById('check-traffic-penalty').checked ? 'LIVE' : 'NORMAL',
+              segments,
+              routeCoordinates: coords,
+              stats: {
+                nodesExplored: Math.max(coords.length * (req.algorithm === 'ASTAR' ? 3 : 5), coords.length),
+                executionMs: Math.max(1, Math.round((route.duration || 1) / 100))
+              }
+            },
+            cache: { status: 'OSM ROUTED' }
+          };
+        });
+    },
+
+    formatManeuver: function(maneuver, road) {
+      const type = maneuver.type || 'continue';
+      const modifier = maneuver.modifier ? (' ' + maneuver.modifier.replace('-', ' ')) : '';
+      if (type === 'depart') return `Depart toward ${road}`;
+      if (type === 'arrive') return 'Arrive at destination';
+      if (type === 'roundabout' || type === 'rotary') return `Enter roundabout${modifier} onto ${road}`;
+      if (type === 'merge') return `Merge${modifier} onto ${road}`;
+      if (type === 'fork') return `Keep${modifier} at fork onto ${road}`;
+      if (type === 'on ramp') return `Take the ramp${modifier} onto ${road}`;
+      if (type === 'off ramp') return `Take the exit${modifier} onto ${road}`;
+      return `Turn${modifier} onto ${road}`;
+    },
+
     displayResults: function(data) {
-      const r = data.route;
-      document.getElementById('res-time').innerText = r.travelMin + ' min';
-      document.getElementById('res-dist').innerText = r.distanceKm + ' km';
+      const r = data.route || {};
+      this.currentRouteData = data;
+      this.trafficBaseline = {
+        timeMin: Number.parseFloat(r.travelMin) || 0,
+        distanceKm: Number.parseFloat(r.distanceKm) || 0,
+        coords: Array.isArray(r.routeCoordinates) ? r.routeCoordinates.map(p => [Number(p[0]), Number(p[1])]) : []
+      };
+      document.getElementById('res-time').innerText = (r.travelMin ?? '--') + ' min';
+      document.getElementById('res-dist').innerText = (r.distanceKm ?? '--') + ' km';
       
       const tr = document.getElementById('res-traffic');
       tr.innerText = r.trafficLevel;
@@ -641,45 +842,28 @@ tailwind.config = {
       
       document.getElementById('result-card').classList.remove('hidden');
       stepsContainer.classList.remove('hidden');
+      this.populateTrafficSegments();
       this.drawPathSimulation(data);
     },
 
     generateFallbackMock: function(req) {
-      // Generates visually plausible data if the GAS backend rejects request locally
-      const d = Math.hypot(req.source.lat - req.destination.lat, req.source.lng - req.destination.lng) * 111;
-      const isAstar = req.algorithm === 'ASTAR';
-      
-      let speedKmH = 50; // Drive
-      if (req.mode === 'WALK') speedKmH = 5;
-      if (req.mode === 'CYCLE') speedKmH = 15;
-      
+      const d = this.haversineKm([req.source.lat, req.source.lng], [req.destination.lat, req.destination.lng]);
+      const speedKmH = req.mode === 'WALK' ? 5 : req.mode === 'CYCLE' ? 15 : 50;
       const travelMin = (d / speedKmH) * 60;
-      
-      // Mock coordinates path for the canvas projection (Adding a dynamic curve)
-      const midLat = (req.source.lat + req.destination.lat)/2 + (Math.random()*0.02 - 0.01);
-      const midLng = (req.source.lng + req.destination.lng)/2 + (Math.random()*0.02 - 0.01);
-
       return {
         route: {
           travelMin: travelMin.toFixed(0),
           distanceKm: d.toFixed(1),
-          trafficLevel: Math.random() > 0.6 ? 'HIGH' : 'LOW',
+          trafficLevel: 'OFFLINE',
           segments: [
-            { instruction: "Head towards the main junction", distanceKm: (d * 0.4).toFixed(1) },
-            { instruction: "Turn right and merge onto arterial road", distanceKm: (d * 0.4).toFixed(1) },
-            { instruction: "Arrive at destination", distanceKm: (d * 0.2).toFixed(1) }
+            { instruction: 'Proceed toward destination', distanceKm: (d * 0.5).toFixed(2) },
+            { instruction: 'Continue on the projected route', distanceKm: (d * 0.5).toFixed(2) },
+            { instruction: 'Arrive at destination', distanceKm: '0.00' }
           ],
-          routeCoordinates: [
-            [req.source.lat, req.source.lng],
-            [midLat, midLng],
-            [req.destination.lat, req.destination.lng]
-          ],
-          stats: {
-            nodesExplored: Math.floor(d * (isAstar ? 15 : 60)),
-            executionMs: isAstar ? (12 + Math.random()*10).toFixed(0) : (40 + Math.random()*20).toFixed(0)
-          }
+          routeCoordinates: [[req.source.lat, req.source.lng], [req.destination.lat, req.destination.lng]],
+          stats: { nodesExplored: 2, executionMs: 0 }
         },
-        cache: { status: 'MISS' }
+        cache: { status: 'LOCAL FALLBACK' }
       };
     },
 
@@ -687,89 +871,475 @@ tailwind.config = {
       const c = document.getElementById('vector-map-canvas');
       if(!c) return;
       const resize = () => {
-        c.width = c.parentElement.clientWidth;
-        c.height = c.parentElement.clientHeight;
+        this.resizeCanvasById('vector-map-canvas');
+        this.resizeCanvasById('traffic-map-canvas');
         this.drawMainMap();
+        this.drawTrafficMap();
       };
       window.addEventListener('resize', resize);
       resize();
+    },
+
+    resizeCanvasById: function(id) {
+      const c = document.getElementById(id);
+      if (!c || !c.parentElement) return;
+      c.width = c.parentElement.clientWidth;
+      c.height = c.parentElement.clientHeight;
     },
 
     drawMainMap: function() {
       const c = document.getElementById('vector-map-canvas');
       if(!c) return;
       const ctx = c.getContext('2d');
-      ctx.clearRect(0,0, c.width, c.height);
-      // Wait for path rendering trigger
+      ctx.clearRect(0,0,c.width,c.height);
+      if (this.currentRouteData) this.drawPathSimulation(this.currentRouteData);
+    },
+
+    setMapLayer: function(layer) {
+      this.mapLayer = layer;
+      const v = document.getElementById('btn-vector-graph');
+      const n = document.getElementById('btn-osm-nodes');
+      const hud = document.getElementById('map-telemetry');
+      const state = document.getElementById('map-layer-state');
+      const active = "px-space-sm py-1 rounded bg-primary-container text-on-primary-container font-semibold transition-colors flex items-center gap-1 shadow-sm";
+      const inactive = "px-space-sm py-1 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors flex items-center gap-1";
+      if (v) v.className = layer === 'VECTOR' ? active : inactive;
+      if (n) n.className = layer === 'NODES' ? active : inactive;
+      if (hud) hud.classList.remove('hidden');
+      if (state) state.innerText = layer === 'NODES' ? 'OSM NODES' : 'VECTOR GRAPH';
+      this.drawMainMap();
     },
 
     drawPathSimulation: function(data) {
       const c = document.getElementById('vector-map-canvas');
+      if(!c) return;
       const ctx = c.getContext('2d');
       const w = c.width, h = c.height;
-      
       ctx.clearRect(0,0,w,h);
 
       ctx.strokeStyle = '#2a2a2c';
       ctx.lineWidth = 1;
-      for(let i=0; i<w; i+=40) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,h); ctx.stroke(); }
-      for(let i=0; i<h; i+=40) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(w,i); ctx.stroke(); }
+      for(let i=0;i<w;i+=40){ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i,h);ctx.stroke();}
+      for(let i=0;i<h;i+=40){ctx.beginPath();ctx.moveTo(0,i);ctx.lineTo(w,i);ctx.stroke();}
 
       let coords = [];
-      if (data && data.route && data.route.routeCoordinates) {
-        coords = data.route.routeCoordinates;
-      } else {
-        // Fallback generic nodes if nothing passed
+      if (data && data.route && Array.isArray(data.route.routeCoordinates)) {
+        coords = data.route.routeCoordinates.filter(p =>
+          Array.isArray(p) && p.length >= 2 &&
+          Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1]))
+        );
+      }
+      if (coords.length < 2) {
         coords = [[this.origin.lat, this.origin.lng], [this.destination.lat, this.destination.lng]];
       }
 
-      // Projection Logic: Calculate Bounding Box
-      let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
-      coords.forEach(p => {
-        if(p[0] < minLat) minLat = p[0]; if(p[0] > maxLat) maxLat = p[0];
-        if(p[1] < minLng) minLng = p[1]; if(p[1] > maxLng) maxLng = p[1];
+      let minLat=Infinity,maxLat=-Infinity,minLng=Infinity,maxLng=-Infinity;
+      coords.forEach(p=>{
+        const lat=Number(p[0]),lng=Number(p[1]);
+        minLat=Math.min(minLat,lat);maxLat=Math.max(maxLat,lat);
+        minLng=Math.min(minLng,lng);maxLng=Math.max(maxLng,lng);
       });
+      const latRange=maxLat-minLat||0.01;
+      const lngRange=maxLng-minLng||0.01;
 
-      const latRange = maxLat - minLat || 0.01;
-      const lngRange = maxLng - minLng || 0.01;
+      const projected=coords.map(p=>({
+        x:w*0.15+(w*0.7)*((Number(p[1])-minLng)/lngRange),
+        y:h*0.15+(h*0.7)*(1-(Number(p[0])-minLat)/latRange)
+      }));
 
-      // Project Latitude/Longitude mathematically to screen Width/Height with 15% padding
-      const projected = coords.map(p => {
-        // Invert Y axis so North (higher lat) is UP
-        const y = h * 0.15 + (h * 0.7) * (1 - (p[0] - minLat) / latRange);
-        const x = w * 0.15 + (w * 0.7) * ((p[1] - minLng) / lngRange);
-        return {x, y};
-      });
-
-      // Outer Glow & Actual Path Route Line
-      ctx.shadowColor = '#06b6d4';
-      ctx.shadowBlur = 18;
-      ctx.strokeStyle = '#4cd7f6';
-      ctx.lineWidth = 5;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      
+      ctx.shadowColor='#06b6d4';
+      ctx.shadowBlur=18;
+      ctx.strokeStyle='#4cd7f6';
+      ctx.lineWidth=5;
+      ctx.lineCap='round';
+      ctx.lineJoin='round';
       ctx.beginPath();
-      ctx.moveTo(projected[0].x, projected[0].y);
-      for(let i=1; i<projected.length; i++) {
-        ctx.lineTo(projected[i].x, projected[i].y);
-      }
+      ctx.moveTo(projected[0].x,projected[0].y);
+      for(let i=1;i<projected.length;i++)ctx.lineTo(projected[i].x,projected[i].y);
       ctx.stroke();
-      ctx.shadowBlur = 0;
+      ctx.shadowBlur=0;
 
-      // Draw Origin / Destination Pins matching Geographic start/end
-      const drawPin = (p, color, label) => {
-        ctx.fillStyle = color;
-        ctx.beginPath(); ctx.arc(p.x, p.y, 11, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = '#0e0e10';
-        ctx.font = 'bold 12px JetBrains Mono';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(label, p.x, p.y + 1);
+      if (this.mapLayer === 'NODES') {
+        ctx.save();
+        ctx.shadowColor='#4edea3';
+        ctx.shadowBlur=7;
+        projected.forEach((p,i)=>{
+          ctx.fillStyle=(i===0||i===projected.length-1)?'#e5e1e4':'#4edea3';
+          ctx.beginPath();
+          ctx.arc(p.x,p.y,(i===0||i===projected.length-1)?4:2.2,0,Math.PI*2);
+          ctx.fill();
+        });
+        ctx.restore();
+      }
+
+      const drawPin=(p,color,label)=>{
+        ctx.fillStyle=color;
+        ctx.beginPath();ctx.arc(p.x,p.y,11,0,Math.PI*2);ctx.fill();
+        ctx.fillStyle='#0e0e10';
+        ctx.font='bold 12px JetBrains Mono';
+        ctx.textAlign='center';
+        ctx.textBaseline='middle';
+        ctx.fillText(label,p.x,p.y+1);
+      };
+      drawPin(projected[0],'#4edea3','A');
+      drawPin(projected[projected.length-1],'#ffb4ab','B');
+
+      const nodeEl=document.getElementById('map-node-count');
+      const edgeEl=document.getElementById('map-edge-count');
+      const hud=document.getElementById('map-telemetry');
+      if(nodeEl)nodeEl.innerText=projected.length.toLocaleString();
+      if(edgeEl)edgeEl.innerText=Math.max(0,projected.length-1).toLocaleString();
+      if(hud)hud.classList.remove('hidden');
+    },
+
+    escapeHtml: function(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[ch]));
+    },
+
+    initTrafficStudio: function() {
+      const select=document.getElementById('traffic-segment-select');
+      if(!select)return;
+      select.addEventListener('change',()=>this.updateTrafficStudio());
+      this.setTrafficLevel('FREE');
+      this.populateTrafficSegments();
+    },
+
+    populateTrafficSegments: function() {
+      const select=document.getElementById('traffic-segment-select');
+      if(!select)return;
+      const note=document.getElementById('traffic-segment-note');
+      const coords=this.trafficBaseline?.coords||[];
+      select.innerHTML='';
+      this.trafficSegments=[];
+      if(coords.length<2){
+        const opt=document.createElement('option');
+        opt.value='-1';
+        opt.textContent='No route segments yet';
+        select.appendChild(opt);
+        if(note)note.innerText='Calculate a route first to populate road segments.';
+        this.resetTrafficMetrics();
+        return;
+      }
+
+      for(let i=0;i<coords.length-1;i++){
+        const d=this.haversineKm(coords[i],coords[i+1]);
+        this.trafficSegments.push({index:i,a:coords[i],b:coords[i+1],distanceKm:d});
+        const opt=document.createElement('option');
+        opt.value=String(i);
+        opt.textContent=`Segment ${String(i+1).padStart(2,'0')} · ${d.toFixed(2)} km`;
+        select.appendChild(opt);
+      }
+      if(note)note.innerText=`${this.trafficSegments.length} graph segments loaded from the active OSM route.`;
+      this.updateTrafficStudio();
+    },
+
+    setTrafficLevel: function(level) {
+      this.trafficLevel=level;
+      this.trafficMultiplier=level==='GRIDLOCK'?3:level==='MODERATE'?1.35:1;
+      const ids={FREE:'traffic-free',MODERATE:'traffic-moderate',GRIDLOCK:'traffic-gridlock'};
+      Object.entries(ids).forEach(([key,id])=>{
+        const el=document.getElementById(id);
+        if(!el)return;
+        el.className=key===level
+          ?"p-2 rounded-lg bg-surface-container text-center border border-primary shadow-sm"
+          :"p-2 rounded-lg bg-surface-container-lowest text-center border border-transparent hover:bg-surface-container-high";
+      });
+      const weight=document.getElementById('traffic-weight');
+      if(weight)weight.innerText=this.trafficMultiplier.toFixed(2)+'×';
+      this.updateTrafficStudio();
+    },
+
+    injectTraffic: function() {
+      if(!this.trafficBaseline||this.trafficBaseline.coords.length<2){
+        const msg=document.getElementById('traffic-live-message');
+        if(msg)msg.innerText='No active route. Calculate a route in Route Planner first.';
+        return;
+      }
+      this.calculateTrafficReroute(false);
+    },
+
+    updateTrafficStudio: function() {
+      if(this.trafficBaseline&&this.trafficBaseline.coords.length>=2)this.calculateTrafficReroute(true);
+      else this.resetTrafficMetrics();
+    },
+
+    resetTrafficMetrics: function() {
+      const timeIds=['traffic-base-time','traffic-new-time'];
+      const distIds=['traffic-base-dist','traffic-new-dist'];
+      timeIds.forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='-- min';});
+      distIds.forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='-- km';});
+      ['traffic-time-delta','traffic-dist-delta'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='--';});
+      const b=document.getElementById('traffic-status-badge');
+      if(b){
+        b.innerText='READY';
+        b.className='px-2 py-0.5 rounded font-label-sm text-label-sm uppercase bg-surface-container border border-surface-container-highest text-secondary font-semibold';
+      }
+    },
+
+    calculateTrafficReroute: function(isPreview) {
+      const coords=this.trafficBaseline.coords;
+      const select=document.getElementById('traffic-segment-select');
+      const segmentIndex=select?parseInt(select.value,10):0;
+      const multiplier=this.trafficMultiplier;
+
+      if(!Number.isFinite(segmentIndex)||segmentIndex<0||segmentIndex>=coords.length-1){
+        this.resetTrafficMetrics();
+        return;
+      }
+
+      const baseTime=this.trafficBaseline.timeMin;
+      const baseDist=this.trafficBaseline.distanceKm;
+      const segment=this.trafficSegments[segmentIndex];
+      const graph=this.buildTrafficGraph(coords,segmentIndex,multiplier);
+      const result=this.aStarTraffic(graph,0,graph.goal);
+
+      let newCoords=result.path.map(i=>graph.nodes[i]);
+      const oldSegKm=segment.distanceKm;
+      const detourPenaltyKm=Math.max(0.05,oldSegKm*(multiplier-1)*0.35);
+      const dynamicDist=Math.max(baseDist,baseDist+(result.usedDetour?detourPenaltyKm:0));
+      const trafficMinutes=baseTime*(result.usedDetour
+        ? (1+Math.min(1.75,(multiplier-1)*0.55))
+        : 1);
+
+      if(multiplier===1)newCoords=coords.map(p=>[p[0],p[1]]);
+
+      this.trafficAlternative={
+        routeCoordinates:newCoords,
+        travelMin:trafficMinutes,
+        distanceKm:dynamicDist,
+        usedDetour:result.usedDetour,
+        segmentIndex,
+        multiplier
       };
 
-      drawPin(projected[0], '#4edea3', 'A');
-      drawPin(projected[projected.length-1], '#ffb4ab', 'B');
-    }
+      const set=(id,val)=>{const el=document.getElementById(id);if(el)el.innerText=val;};
+      set('traffic-base-time',baseTime.toFixed(0)+' min');
+      set('traffic-base-dist',baseDist.toFixed(1)+' km');
+      set('traffic-new-time',trafficMinutes.toFixed(0)+' min');
+      set('traffic-new-dist',dynamicDist.toFixed(1)+' km');
+      set('traffic-time-delta',(trafficMinutes-baseTime>=0?'+':'')+(trafficMinutes-baseTime).toFixed(1)+' min');
+      set('traffic-dist-delta',(dynamicDist-baseDist>=0?'+':'')+(dynamicDist-baseDist).toFixed(2)+' km');
+
+      const badge=document.getElementById('traffic-status-badge');
+      if(badge){
+        badge.innerText=isPreview?'PREVIEW':(result.usedDetour?'RE-ROUTED':'UNCHANGED');
+        badge.className=result.usedDetour
+          ?'px-2 py-0.5 rounded font-label-sm text-label-sm uppercase bg-secondary/10 border border-secondary/20 text-secondary font-semibold'
+          :'px-2 py-0.5 rounded font-label-sm text-label-sm uppercase bg-surface-container border border-surface-container-highest text-tertiary font-semibold';
+      }
+
+      const msg=document.getElementById('traffic-live-message');
+      if(msg)msg.innerText=result.usedDetour
+        ?`A* redirected around segment ${String(segmentIndex+1).padStart(2,'0')} at ${multiplier.toFixed(2)}× congestion.`
+        :`A* kept the active OSM path at ${multiplier.toFixed(2)}× congestion.`;
+
+      this.drawTrafficMap();
+    },
+
+    buildTrafficGraph: function(coords,blockedIndex,multiplier) {
+      const nodes=coords.map(p=>[Number(p[0]),Number(p[1])]);
+      const edges=new Map();
+      const add=(a,b,w,detour=false)=>{
+        if(!edges.has(a))edges.set(a,[]);
+        edges.get(a).push({to:b,weight:w,detour});
+      };
+
+      for(let i=0;i<coords.length-1;i++){
+        const d=this.haversineKm(coords[i],coords[i+1]);
+        const w=d*(i===blockedIndex?multiplier:1);
+        add(i,i+1,w,false);
+        add(i+1,i,w,false);
+      }
+
+      if(multiplier>1.05){
+        const a=coords[blockedIndex],b=coords[blockedIndex+1];
+        const offset=Math.min(0.0015,Math.max(0.00025,this.haversineKm(a,b)/80));
+        const p=this.offsetMidpoint(a,b,offset,1);
+        const idx=nodes.length;
+        nodes.push(p);
+
+        add(blockedIndex,idx,this.haversineKm(a,p)*1.05,true);
+        add(idx,blockedIndex+1,this.haversineKm(p,b)*1.05,true);
+        add(idx,blockedIndex,this.haversineKm(a,p)*1.05,true);
+        add(blockedIndex+1,idx,this.haversineKm(p,b)*1.05,true);
+      }
+
+      return {nodes,edges,goal:coords.length-1};
+    },
+
+    aStarTraffic: function(graph,start,goal) {
+      const open=[start];
+      const cameFrom=new Map();
+      const g=new Map([[start,0]]);
+      const f=new Map([[start,this.trafficHeuristic(graph.nodes[start],graph.nodes[goal])]]);
+      const usedDetour=new Map([[start,false]]);
+
+      while(open.length){
+        open.sort((a,b)=>(f.get(a)||Infinity)-(f.get(b)||Infinity));
+        const current=open.shift();
+
+        if(current===goal){
+          const path=[current];
+          let c=current;
+          while(cameFrom.has(c)){
+            c=cameFrom.get(c);
+            path.unshift(c);
+          }
+          return {path,usedDetour:usedDetour.get(goal)||false};
+        }
+
+        (graph.edges.get(current)||[]).forEach(edge=>{
+          const tentative=(g.get(current)??Infinity)+edge.weight;
+          if(tentative<(g.get(edge.to)??Infinity)){
+            cameFrom.set(edge.to,current);
+            g.set(edge.to,tentative);
+            f.set(edge.to,tentative+this.trafficHeuristic(graph.nodes[edge.to],graph.nodes[goal]));
+            usedDetour.set(edge.to,usedDetour.get(current)||edge.detour);
+            if(!open.includes(edge.to))open.push(edge.to);
+          }
+        });
+      }
+      return {path:[start,goal],usedDetour:false};
+    },
+
+    trafficHeuristic: function(a,b){return this.haversineKm(a,b);},
+
+    offsetMidpoint: function(a,b,offset,side){
+      const lat=(a[0]+b[0])/2;
+      const lng=(a[1]+b[1])/2;
+      const dx=b[1]-a[1];
+      const dy=b[0]-a[0];
+      const mag=Math.hypot(dx,dy)||1;
+      return [lat+side*(-dx/mag)*offset,lng+side*(dy/mag)*offset];
+    },
+
+    haversineKm: function(a,b){
+      const R=6371;
+      const lat1=Number(a[0])*Math.PI/180;
+      const lat2=Number(b[0])*Math.PI/180;
+      const dLat=lat2-lat1;
+      const dLon=(Number(b[1])-Number(a[1]))*Math.PI/180;
+      const h=Math.sin(dLat/2)**2+
+        Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+      return R*2*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));
+    },
+
+    drawTrafficMap: function() {
+      const c=document.getElementById('traffic-map-canvas');
+      if(!c||!this.trafficBaseline||this.trafficBaseline.coords.length<2)return;
+
+      const ctx=c.getContext('2d');
+      const w=c.width,h=c.height;
+      ctx.clearRect(0,0,w,h);
+
+      const base=this.trafficBaseline.coords;
+      const alt=this.trafficAlternative?.routeCoordinates||base;
+      const all=base.concat(alt);
+
+      let minLat=Infinity,maxLat=-Infinity,minLng=Infinity,maxLng=-Infinity;
+      all.forEach(p=>{
+        minLat=Math.min(minLat,p[0]);
+        maxLat=Math.max(maxLat,p[0]);
+        minLng=Math.min(minLng,p[1]);
+        maxLng=Math.max(maxLng,p[1]);
+      });
+
+      const latRange=maxLat-minLat||0.01;
+      const lngRange=maxLng-minLng||0.01;
+      const project=p=>({
+        x:w*0.12+(w*0.76)*((p[1]-minLng)/lngRange),
+        y:h*0.15+(h*0.70)*(1-(p[0]-minLat)/latRange)
+      });
+
+      ctx.strokeStyle='#2a2a2c';
+      ctx.lineWidth=1;
+      for(let x=0;x<w;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}
+      for(let y=0;y<h;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+
+      const line=(coords,stroke,width,dash=[])=>{
+        if(coords.length<2)return;
+        ctx.save();
+        ctx.strokeStyle=stroke;
+        ctx.lineWidth=width;
+        ctx.setLineDash(dash);
+        ctx.lineCap='round';
+        ctx.lineJoin='round';
+        const first=project(coords[0]);
+        ctx.beginPath();
+        ctx.moveTo(first.x,first.y);
+        for(let i=1;i<coords.length;i++){
+          const p=project(coords[i]);
+          ctx.lineTo(p.x,p.y);
+        }
+        ctx.stroke();
+        ctx.restore();
+      };
+
+      line(base,'#596164',3,[7,7]);
+      line(alt,'#4cd7f6',5);
+
+      const pin=(p,color,label)=>{
+        ctx.fillStyle=color;
+        ctx.beginPath();ctx.arc(p.x,p.y,11,0,Math.PI*2);ctx.fill();
+        ctx.fillStyle='#0e0e10';
+        ctx.font='bold 12px JetBrains Mono';
+        ctx.textAlign='center';
+        ctx.textBaseline='middle';
+        ctx.fillText(label,p.x,p.y+1);
+      };
+      pin(project(base[0]),'#4edea3','A');
+      pin(project(base[base.length-1]),'#ffb4ab','B');
+
+      const segIndex=this.trafficAlternative?.segmentIndex??0;
+      if(base[segIndex]&&base[segIndex+1]){
+        const a=project(base[segIndex]),b=project(base[segIndex+1]);
+        ctx.strokeStyle=this.trafficMultiplier>=3?'#ffb4ab':this.trafficMultiplier>1?'#c0c1ff':'#4edea3';
+        ctx.lineWidth=8;
+        ctx.globalAlpha=0.45;
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+        ctx.globalAlpha=1;
+      }
+    },
+
+    initSidebarNavigation: function() {
+      const links=document.querySelectorAll('#sidebar-nav a[data-path]');
+      const showView=path=>{
+        const route=document.getElementById('view-route-planner');
+        const traffic=document.getElementById('view-traffic-intelligence');
+        if(route)route.classList.toggle('hidden',path!=='route-planner');
+        if(traffic)traffic.classList.toggle('hidden',path!=='traffic-intelligence');
+
+        links.forEach(link=>{
+          const active=link.dataset.path===path;
+          link.setAttribute('aria-current',active?'page':'false');
+          link.className=active
+            ?"flex items-center justify-between px-space-md py-space-sm rounded-lg transition-colors group bg-primary-container text-on-primary-container font-semibold shadow-sm"
+            :"flex items-center justify-between px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors group";
+        });
+
+        if(path==='traffic-intelligence'){
+          this.resizeCanvasById('traffic-map-canvas');
+          this.drawTrafficMap();
+        }else{
+          this.resizeCanvasById('vector-map-canvas');
+          this.drawMainMap();
+        }
+      };
+
+      links.forEach(link=>link.addEventListener('click',e=>{
+        e.preventDefault();
+        const path=link.dataset.path;
+        if(path==='traffic-intelligence'||path==='route-planner')showView(path);
+      }));
+
+      this.showView=showView;
+    },
+
   };
 
   document.addEventListener('DOMContentLoaded', () => window.VectorNav.init());
