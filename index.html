@@ -12,6 +12,8 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.css"/>
 <style>
   #vector-map-map, #traffic-map-map { position:absolute; inset:0; width:100%; height:100%; z-index:1; }
+  .vr-map-marker { cursor:pointer; z-index:5; }
+  .vr-map-marker::after { content:''; position:absolute; inset:-5px; border-radius:50%; border:1px solid currentColor; opacity:.22; }
   .maplibregl-ctrl-group { background: rgba(32,31,34,.92); border: 1px solid #353437; }
   .maplibregl-ctrl-group button { filter: invert(1); }
   .maplibregl-ctrl-attrib { background: rgba(19,19,21,.82) !important; color:#bcc9cd; font: 10px 'JetBrains Mono', monospace; }
@@ -463,11 +465,7 @@ tailwind.config = {
   </main>
 </div>
 
-<script type="module">
-  import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.mjs';
-  window.maplibregl = maplibregl;
-  window.dispatchEvent(new Event('maplibre-ready'));
-</script>
+<script src="https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.js"></script>
 <script>
 (function() {
   // Google Apps Script Backend URL Provided by user
@@ -490,12 +488,27 @@ tailwind.config = {
     maplibreReady: false,
     osmNodeRequest: null,
     osmNodeCache: new Map(),
+    mainOriginMarker: null,
+    mainDestinationMarker: null,
+    trafficOriginMarker: null,
+    trafficDestinationMarker: null,
+    mapErrorShown: {main:false, traffic:false},
     
     // State to hold actual coordinates behind the scenes
     origin: { name: 'Chennai Central (MAS)', lat: 13.0827, lng: 80.2707 },
     destination: { name: 'Tambaram Railway Terminal', lat: 12.9249, lng: 80.1278 },
 
     timers: { origin: null, destination: null },
+    geocodeControllers: { origin: null, destination: null },
+    geocodeCache: new Map(),
+    lastGeocodeRequestAt: 0,
+    GEOCODE_DEBOUNCE_MS: 500,
+    GEOCODE_MIN_INTERVAL_MS: 1000,
+    geocoderName: 'Photon / OpenStreetMap',
+
+    escapeHtml: function(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    },
 
     init: function() {
       this.initRealMaps();
@@ -512,48 +525,142 @@ tailwind.config = {
     },
 
     initRealMaps: function() {
-      const start = () => {
-        if (!window.maplibregl || this.mainMap || this.trafficMap) return;
-        this.maplibreReady = true;
-        const styleUrl = 'https://tiles.openfreemap.org/styles/liberty';
-        const base = {
-          style: styleUrl,
-          center: [this.origin.lng, this.origin.lat],
-          zoom: 12.5,
-          pitch: 0,
-          attributionControl: false,
-          dragRotate: true,
-          touchZoomRotate: true,
-          cooperativeGestures: false
-        };
+      if (!window.maplibregl) {
+        console.error('MapLibre GL JS failed to load.');
+        return;
+      }
+      if (this.mainMap || this.trafficMap) return;
 
-        this.mainMap = new window.maplibregl.Map(Object.assign({ container: 'vector-map-map' }, base));
-        this.trafficMap = new window.maplibregl.Map(Object.assign({ container: 'traffic-map-map' }, base));
-
-        this.mainMap.addControl(new window.maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-left');
-        this.trafficMap.addControl(new window.maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-left');
-
-        this.mainMap.on('load', () => {
-          this.mainMapReady = true;
-          this.addRealMapLayers(this.mainMap, 'main');
-          this.renderMainMap();
-        });
-        this.trafficMap.on('load', () => {
-          this.trafficMapReady = true;
-          this.addRealMapLayers(this.trafficMap, 'traffic');
-          this.renderTrafficMap();
-        });
-
-        const resizeMaps = () => {
-          try { if (this.mainMap) this.mainMap.resize(); } catch(e) {}
-          try { if (this.trafficMap) this.trafficMap.resize(); } catch(e) {}
-        };
-        window.addEventListener('resize', resizeMaps);
-        document.addEventListener('visibilitychange', resizeMaps);
+      this.maplibreReady = true;
+      const styleUrl = 'https://tiles.openfreemap.org/styles/liberty';
+      const base = {
+        style: styleUrl,
+        center: [this.origin.lng, this.origin.lat],
+        zoom: 12.5,
+        pitch: 0,
+        attributionControl: true,
+        dragRotate: true,
+        touchZoomRotate: true,
+        cooperativeGestures: false
       };
 
-      if (window.maplibregl) start();
-      else window.addEventListener('maplibre-ready', start, { once: true });
+      const mainContainer = document.getElementById('vector-map-map');
+      const trafficContainer = document.getElementById('traffic-map-map');
+      if (!mainContainer || !trafficContainer) return;
+
+      this.mainMap = new window.maplibregl.Map({container: mainContainer, ...base});
+      this.trafficMap = new window.maplibregl.Map({container: trafficContainer, ...base});
+
+      this.configureMap(this.mainMap, 'main');
+      this.configureMap(this.trafficMap, 'traffic');
+
+      this.mainMap.on('load', () => {
+        this.mainMapReady = true;
+        this.addRealMapLayers(this.mainMap, 'main');
+        this.ensureLocationMarkers(this.mainMap, 'main');
+        this.renderMainMap();
+        setTimeout(() => this.mainMap.resize(), 50);
+      });
+      this.trafficMap.on('load', () => {
+        this.trafficMapReady = true;
+        this.addRealMapLayers(this.trafficMap, 'traffic');
+        this.ensureLocationMarkers(this.trafficMap, 'traffic');
+        this.renderTrafficMap();
+        setTimeout(() => this.trafficMap.resize(), 50);
+      });
+
+      const resizeMaps = () => {
+        try { if (this.mainMap) this.mainMap.resize(); } catch(e) {}
+        try { if (this.trafficMap) this.trafficMap.resize(); } catch(e) {}
+      };
+      window.addEventListener('resize', resizeMaps);
+      document.addEventListener('visibilitychange', resizeMaps);
+      setTimeout(resizeMaps, 100);
+      setTimeout(resizeMaps, 500);
+      setTimeout(resizeMaps, 1200);
+    },
+
+    configureMap: function(map, kind) {
+      if (!map) return;
+      map.addControl(new window.maplibregl.NavigationControl({showCompass:true, visualizePitch:true}), 'top-left');
+      map.on('error', e => {
+        console.warn(kind + ' map error:', e && e.error ? e.error : e);
+      });
+      map.on('styleimagemissing', () => {});
+    },
+
+    makeMarkerElement: function(kind, label) {
+      const wrap = document.createElement('div');
+      wrap.className = 'vr-map-marker-wrap';
+      wrap.style.position = 'relative';
+      wrap.style.width = '1px';
+      wrap.style.height = '1px';
+      wrap.style.pointerEvents = 'auto';
+
+      const text = document.createElement('div');
+      text.className = 'vr-map-marker-label';
+      text.style.position = 'absolute';
+      text.style.left = '50%';
+      text.style.bottom = '18px';
+      text.style.transform = 'translateX(-50%)';
+      text.style.whiteSpace = 'nowrap';
+      text.style.padding = '4px 7px';
+      text.style.borderRadius = '5px';
+      text.style.background = 'rgba(14,14,16,.94)';
+      text.style.border = '1px solid #3d494c';
+      text.style.color = kind === 'origin' ? '#4edea3' : '#ffb4ab';
+      text.style.font = '600 9px JetBrains Mono, monospace';
+      text.style.letterSpacing = '.04em';
+      text.style.boxShadow = '0 3px 12px rgba(0,0,0,.35)';
+      text.textContent = kind === 'origin' ? 'CURRENT / ORIGIN' : 'DESTINATION';
+
+      const dot = document.createElement('div');
+      dot.className = 'vr-map-marker vr-map-marker-' + kind;
+      dot.style.width = kind === 'origin' ? '22px' : '24px';
+      dot.style.height = kind === 'origin' ? '22px' : '24px';
+      dot.style.marginLeft = kind === 'origin' ? '-11px' : '-12px';
+      dot.style.marginTop = kind === 'origin' ? '-11px' : '-12px';
+      dot.style.borderRadius = '50%';
+      dot.style.background = kind === 'origin' ? '#4edea3' : '#ff6b6b';
+      dot.style.border = '3px solid #0e0e10';
+      dot.style.boxSizing = 'border-box';
+      dot.style.boxShadow = kind === 'origin' ? '0 0 0 4px rgba(78,222,163,.22), 0 4px 14px rgba(0,0,0,.45)' : '0 0 0 4px rgba(255,107,107,.20), 0 4px 14px rgba(0,0,0,.45)';
+      dot.style.display = 'flex';
+      dot.style.alignItems = 'center';
+      dot.style.justifyContent = 'center';
+      dot.style.color = '#0e0e10';
+      dot.style.font = '700 10px JetBrains Mono, monospace';
+      dot.textContent = kind === 'origin' ? 'A' : 'B';
+      dot.title = label;
+
+      wrap.appendChild(text);
+      wrap.appendChild(dot);
+      return wrap;
+    },
+
+    ensureLocationMarkers: function(map, kind) {
+      if (!map || !window.maplibregl) return;
+      const ok = kind === 'main' ? 'mainOriginMarker' : 'trafficOriginMarker';
+      const dk = kind === 'main' ? 'mainDestinationMarker' : 'trafficDestinationMarker';
+      if (!this[ok]) {
+        this[ok] = new window.maplibregl.Marker({element:this.makeMarkerElement('origin','Current / Origin location'), anchor:'center'})
+          .setLngLat([this.origin.lng,this.origin.lat]).addTo(map);
+      }
+      if (!this[dk]) {
+        this[dk] = new window.maplibregl.Marker({element:this.makeMarkerElement('destination','Destination location'), anchor:'center'})
+          .setLngLat([this.destination.lng,this.destination.lat]).addTo(map);
+      }
+      this.updateLocationMarkers(kind);
+    },
+
+    updateLocationMarkers: function(kind) {
+      const om = kind === 'main' ? this.mainOriginMarker : this.trafficOriginMarker;
+      const dm = kind === 'main' ? this.mainDestinationMarker : this.trafficDestinationMarker;
+      if (!om || !dm) return;
+      om.setLngLat([this.origin.lng,this.origin.lat]);
+      dm.setLngLat([this.destination.lng,this.destination.lat]);
+      om.getElement().title = 'Current / Origin: ' + this.origin.name;
+      dm.getElement().title = 'Destination: ' + this.destination.name;
     },
 
     addRealMapLayers: function(map, mapKind) {
@@ -635,86 +742,199 @@ tailwind.config = {
     setupGeocoding: function(type) {
       const input = document.getElementById('input-' + type);
       const dropdown = document.getElementById(type + '-dropdown');
-      
-      // Hide dropdown when clicking outside
+      if (!input || !dropdown) return;
+
+      // Hide dropdown when clicking outside.
       document.addEventListener('click', (e) => {
         if (!input.contains(e.target) && !dropdown.contains(e.target)) {
           dropdown.classList.add('hidden');
         }
       });
 
+      // Explicit coordinate entry is always accepted and does not hit any network service.
+      input.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        const raw = input.value.trim();
+        const match = raw.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+        if (match) {
+          const lat = Number(match[1]);
+          const lng = Number(match[2]);
+          if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+            this.selectLocation(type, { name: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, lat, lng });
+            dropdown.classList.add('hidden');
+            return;
+          }
+        }
+
+        // Nominatim is only used after an explicit user action (Enter), not for autocomplete.
+        this.searchNominatimOnce(raw, type, dropdown);
+      });
+
       input.addEventListener('input', (e) => {
         const query = e.target.value.trim();
         clearTimeout(this.timers[type]);
-        
+        this.geocodeControllers[type]?.abort?.();
+        this.geocodeControllers[type] = null;
+
         if (query.length < 3) {
           dropdown.classList.add('hidden');
           return;
         }
 
-        // Show loading state in dropdown
         dropdown.innerHTML = `<div class="p-3 text-center text-on-surface-variant font-code-telemetry text-[11px]"><span class="material-symbols-outlined text-[14px] animate-spin inline-block align-middle mr-1">sync</span> Searching OSM database...</div>`;
         dropdown.classList.remove('hidden');
 
-        // Debounce network request by 500ms to respect OSM Nominatim limits
+        // 500ms debounce. Actual public geocoder calls are additionally spaced by >=1s.
         this.timers[type] = setTimeout(() => {
-          this.fetchGeocode(query, type, dropdown);
-        }, 500);
+          this.queuePhotonGeocode(query, type, dropdown);
+        }, this.GEOCODE_DEBOUNCE_MS);
       });
     },
 
-    fetchGeocode: function(query, type, dropdown) {
-      // Photon is built for OpenStreetMap data and supports search-as-you-type.
-      // The public Nominatim service does not permit client-side autocomplete.
-      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=6`;
+    queuePhotonGeocode: function(query, type, dropdown) {
+      const cacheKey = query.toLowerCase();
+      if (this.geocodeCache.has(cacheKey)) {
+        this.renderPhotonResults(this.geocodeCache.get(cacheKey), type, dropdown);
+        return;
+      }
 
-      fetch(url, { headers: { 'Accept-Language': 'en-US,en;q=0.9' } })
+      const wait = Math.max(0, this.GEOCODE_MIN_INTERVAL_MS - (Date.now() - this.lastGeocodeRequestAt));
+      setTimeout(() => {
+        // Input may have changed during the delay.
+        if (document.getElementById('input-' + type)?.value.trim() !== query) return;
+        this.fetchPhoton(query, type, dropdown);
+      }, wait);
+    },
+
+    fetchPhoton: function(query, type, dropdown) {
+      const controller = new AbortController();
+      this.geocodeControllers[type] = controller;
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      this.lastGeocodeRequestAt = Date.now();
+      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=6&lang=en`;
+
+      fetch(url, {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'omit',
+        cache: 'force-cache',
+        signal: controller.signal
+      })
       .then(res => {
-        if (!res.ok) throw new Error('Geocoder HTTP ' + res.status);
+        if (!res.ok) throw new Error('Photon HTTP ' + res.status);
         return res.json();
       })
       .then(data => {
-        dropdown.innerHTML = '';
-        const features = Array.isArray(data.features) ? data.features : [];
-        if (!features.length) {
-          dropdown.innerHTML = `<div class="p-3 text-center text-on-surface-variant font-code-telemetry text-[11px]">No matching coordinates found.</div>`;
-          return;
-        }
-
-        features.forEach(feature => {
-          const props = feature.properties || {};
-          const coords = feature.geometry && feature.geometry.coordinates;
-          if (!Array.isArray(coords) || coords.length < 2) return;
-
-          const lng = Number(coords[0]);
-          const lat = Number(coords[1]);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-
-          const namePart = props.name || props.street || props.city || props.county || 'Map Location';
-          const contextPart = [props.street, props.city, props.state, props.country]
-            .filter(Boolean)
-            .filter((v, i, a) => a.indexOf(v) === i && v !== namePart)
-            .slice(0,2)
-            .join(', ') || 'Geographic Node';
-
-          const btn = document.createElement('button');
-          btn.className = "w-full text-left px-3 py-2.5 hover:bg-surface-container hover:text-primary transition-colors border-b border-surface-container-highest last:border-0 focus:outline-none focus:bg-surface-container group";
-          btn.innerHTML = `
-            <div class="font-body-sm font-medium text-on-surface group-hover:text-primary truncate">${this.escapeHtml(namePart)}</div>
-            <div class="font-code-telemetry text-[9px] text-outline truncate mt-0.5">${this.escapeHtml(contextPart)}</div>
-            <div class="font-code-telemetry text-[8px] text-secondary mt-0.5 opacity-50">${lat.toFixed(4)}, ${lng.toFixed(4)}</div>
-          `;
-          btn.onclick = () => {
-            this.selectLocation(type, { name: namePart, lat, lng });
-            dropdown.classList.add('hidden');
-          };
-          dropdown.appendChild(btn);
-        });
+        this.geocodeCache.set(query.toLowerCase(), data);
+        this.renderPhotonResults(data, type, dropdown);
       })
       .catch(err => {
-        console.warn('OSM geocoding request failed:', err);
-        dropdown.innerHTML = `<div class="p-3 text-center text-error font-code-telemetry text-[11px]">Network Error: Could not reach OSM geocoder.</div>`;
+        if (err.name === 'AbortError') return;
+        console.warn('Photon geocoding request failed:', err);
+        dropdown.innerHTML = `<div class="p-3 text-center text-error font-code-telemetry text-[11px]">Live OSM geocoder unavailable. Press Enter to retry.</div>`;
+        dropdown.classList.remove('hidden');
+      })
+      .finally(() => {
+        clearTimeout(timeout);
+        if (this.geocodeControllers[type] === controller) this.geocodeControllers[type] = null;
       });
+    },
+
+    renderPhotonResults: function(data, type, dropdown) {
+      dropdown.innerHTML = '';
+      const features = Array.isArray(data?.features) ? data.features : [];
+      if (!features.length) {
+        dropdown.innerHTML = `<div class="p-3 text-center text-on-surface-variant font-code-telemetry text-[11px]">No matching coordinates found.</div>`;
+        return;
+      }
+
+      features.forEach(feature => {
+        const props = feature.properties || {};
+        const coords = feature.geometry && feature.geometry.coordinates;
+        if (!Array.isArray(coords) || coords.length < 2) return;
+
+        const lng = Number(coords[0]);
+        const lat = Number(coords[1]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+        const namePart = props.name || props.street || props.city || props.county || 'Map Location';
+        const contextPart = [props.street, props.city, props.state, props.country]
+          .filter(Boolean)
+          .filter((v, i, a) => a.indexOf(v) === i && v !== namePart)
+          .slice(0, 2)
+          .join(', ') || 'Geographic Node';
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = "w-full text-left px-3 py-2.5 hover:bg-surface-container hover:text-primary transition-colors border-b border-surface-container-highest last:border-0 focus:outline-none focus:bg-surface-container group";
+        btn.innerHTML = `
+          <div class="font-body-sm font-medium text-on-surface group-hover:text-primary truncate">${this.escapeHtml(namePart)}</div>
+          <div class="font-code-telemetry text-[9px] text-outline truncate mt-0.5">${this.escapeHtml(contextPart)}</div>
+          <div class="font-code-telemetry text-[8px] text-secondary mt-0.5 opacity-50">${lat.toFixed(4)}, ${lng.toFixed(4)}</div>
+        `;
+        btn.onclick = () => {
+          this.selectLocation(type, { name: namePart, lat, lng });
+          dropdown.classList.add('hidden');
+        };
+        dropdown.appendChild(btn);
+      });
+
+      if (!dropdown.children.length) {
+        dropdown.innerHTML = `<div class="p-3 text-center text-on-surface-variant font-code-telemetry text-[11px]">No usable coordinates returned.</div>`;
+      }
+    },
+
+    searchNominatimOnce: function(query, type, dropdown) {
+      const clean = query.trim();
+      if (clean.length < 3) return;
+
+      clearTimeout(this.timers[type]);
+      this.geocodeControllers[type]?.abort?.();
+      const wait = Math.max(0, this.GEOCODE_MIN_INTERVAL_MS - (Date.now() - this.lastGeocodeRequestAt));
+      dropdown.innerHTML = `<div class="p-3 text-center text-on-surface-variant font-code-telemetry text-[11px]"><span class="material-symbols-outlined text-[14px] animate-spin inline-block align-middle mr-1">sync</span> Searching OSM...</div>`;
+      dropdown.classList.remove('hidden');
+
+      this.timers[type] = setTimeout(() => {
+        const controller = new AbortController();
+        this.geocodeControllers[type] = controller;
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        this.lastGeocodeRequestAt = Date.now();
+        const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&accept-language=en&q=${encodeURIComponent(clean)}`;
+
+        fetch(url, {
+          method: 'GET',
+          mode: 'cors',
+          credentials: 'omit',
+          cache: 'no-store',
+          signal: controller.signal
+        })
+        .then(res => {
+          if (!res.ok) throw new Error('Nominatim HTTP ' + res.status);
+          return res.json();
+        })
+        .then(data => {
+          const normalized = {
+            features: (Array.isArray(data) ? data : []).map(place => ({
+              properties: {
+                name: place.name || (place.display_name || '').split(',')[0] || 'Map Location',
+                display_name: place.display_name || ''
+              },
+              geometry: { coordinates: [Number(place.lon), Number(place.lat)] }
+            }))
+          };
+          this.renderPhotonResults(normalized, type, dropdown);
+        })
+        .catch(err => {
+          if (err.name === 'AbortError') return;
+          console.warn('Explicit OSM Nominatim search failed:', err);
+          dropdown.innerHTML = `<div class="p-3 text-center text-error font-code-telemetry text-[11px]">OSM search unavailable. Check your network connection and try again.</div>`;
+        })
+        .finally(() => {
+          clearTimeout(timeout);
+          if (this.geocodeControllers[type] === controller) this.geocodeControllers[type] = null;
+        });
+      }, wait);
     },
 
     selectLocation: function(type, data) {
@@ -726,10 +946,15 @@ tailwind.config = {
       label.innerText = `LAT/LON: ${data.lat.toFixed(4)}, ${data.lng.toFixed(4)}`;
       label.classList.add('text-primary');
       setTimeout(() => label.classList.remove('text-primary'), 1000);
-      const map=this.mainMap;
-      if(map && this.mainMapReady) { map.easeTo({center:[data.lng,data.lat],duration:450}); this.renderMainMap(); }
-      const tmap=this.trafficMap;
-      if(tmap && this.trafficMapReady) this.renderTrafficMap();
+      if(this.mainMapReady) {
+        this.updateLocationMarkers('main');
+        this.mainMap.easeTo({center:[data.lng,data.lat],duration:450});
+        this.renderMainMap();
+      }
+      if(this.trafficMapReady) {
+        this.updateLocationMarkers('traffic');
+        this.renderTrafficMap();
+      }
     },
 
     swapNodes: function() {
@@ -745,6 +970,8 @@ tailwind.config = {
       // Swap Labels
       document.getElementById('label-origin-coords').innerText = `LAT/LON: ${this.origin.lat.toFixed(4)}, ${this.origin.lng.toFixed(4)}`;
       document.getElementById('label-dest-coords').innerText = `LAT/LON: ${this.destination.lat.toFixed(4)}, ${this.destination.lng.toFixed(4)}`;
+      if(this.mainMapReady) { this.updateLocationMarkers('main'); this.renderMainMap(); }
+      if(this.trafficMapReady) { this.updateLocationMarkers('traffic'); this.renderTrafficMap(); }
     },
 
     setMode: function(m) {
@@ -823,7 +1050,12 @@ tailwind.config = {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'calculateRoute', payload })
       })
-      .then(r => r.json())
+      .then(async r => {
+        const raw = await r.text();
+        if (!r.ok) throw new Error('GSS HTTP ' + r.status);
+        try { return JSON.parse(raw); }
+        catch (_) { throw new Error('GSS returned a non-JSON response.'); }
+      })
       .then(res => {
         if (!res.success) throw new Error(res.error || 'Backend calculation failed.');
         const data = res.data || {};
@@ -859,17 +1091,32 @@ tailwind.config = {
       });
     },
 
-    fetchOSMRoute: function(req) {
-      // Real road geometry from OpenStreetMap via OSRM.
-      const url = `https://router.project-osrm.org/route/v1/driving/${req.source.lng},${req.source.lat};${req.destination.lng},${req.destination.lat}?overview=full&geometries=geojson&steps=true`;
+    fetchOSMRoute: async function(req) {
+      const profiles = {
+        DRIVE: [
+          { base: 'https://router.project-osrm.org', path: 'driving' },
+          { base: 'https://routing.openstreetmap.de/routed-car', path: 'driving' }
+        ],
+        CYCLE: [
+          { base: 'https://router.project-osrm.org', path: 'cycling' },
+          { base: 'https://routing.openstreetmap.de/routed-bike', path: 'cycling' }
+        ],
+        WALK: [
+          { base: 'https://router.project-osrm.org', path: 'foot' },
+          { base: 'https://routing.openstreetmap.de/routed-foot', path: 'foot' }
+        ]
+      };
+      const candidates = profiles[req.mode] || profiles.DRIVE;
+      const errors = [];
 
-      return fetch(url)
-        .then(r => {
-          if (!r.ok) throw new Error('Routing HTTP ' + r.status);
-          return r.json();
-        })
-        .then(data => {
-          if (data.code !== 'Ok' || !data.routes || !data.routes.length) throw new Error('No OSM route found.');
+      for (let i = 0; i < candidates.length; i++) {
+        const candidate = candidates[i];
+        const url = `${candidate.base}/route/v1/${candidate.path}/${req.source.lng},${req.source.lat};${req.destination.lng},${req.destination.lat}?overview=full&geometries=geojson&steps=true`;
+        try {
+          const res = await fetch(url, { method: 'GET', mode: 'cors', credentials: 'omit', cache: 'no-store' });
+          if (!res.ok) throw new Error('Routing HTTP ' + res.status);
+          const data = await res.json();
+          if (data.code !== 'Ok' || !data.routes || !data.routes.length) throw new Error('No route found.');
 
           const route = data.routes[0];
           const coords = Array.isArray(route.geometry?.coordinates)
@@ -877,15 +1124,16 @@ tailwind.config = {
                 .map(p => [Number(p[1]), Number(p[0])])
                 .filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]))
             : [];
-          if (coords.length < 2) throw new Error('OSM route geometry unavailable.');
+          if (coords.length < 2) throw new Error('Route geometry unavailable.');
 
-          const modeFactor = req.mode === 'WALK' ? 3.8 : req.mode === 'CYCLE' ? 2.1 : 1;
+          const modeFactor = req.mode === 'WALK' ? 1 : req.mode === 'CYCLE' ? 1 : 1;
           const distanceKm = route.distance / 1000;
           const travelMin = (route.duration / 60) * modeFactor;
 
           const segments = [];
-          if (route.legs && route.legs[0] && Array.isArray(route.legs[0].steps)) {
-            route.legs[0].steps.forEach(step => {
+          const steps = route.legs?.[0]?.steps;
+          if (Array.isArray(steps)) {
+            steps.forEach(step => {
               const maneuver = step.maneuver || {};
               segments.push({
                 instruction: this.formatManeuver(maneuver, step.name || 'mapped road'),
@@ -916,7 +1164,11 @@ tailwind.config = {
             },
             cache: { status: 'OSM ROUTED' }
           };
-        });
+        } catch (err) {
+          errors.push(candidate.base + ': ' + err.message);
+        }
+      }
+      throw new Error(errors.join(' | ') || 'OSM routing services unavailable.');
     },
 
     formatManeuver: function(maneuver, road) {
@@ -1075,6 +1327,7 @@ tailwind.config = {
       this.setMapSourceData(map,'vr-baseline-main',{type:'FeatureCollection',features:[]});
       this.setMapSourceData(map,'vr-highlight-main',{type:'FeatureCollection',features:[]});
       this.setMapSourceData(map,'vr-endpoints-main',this.endpointsFeature());
+      this.ensureLocationMarkers(map, 'main');
       if(this.mapLayer==='NODES') this.setMapSourceData(map,'vr-nodes-main',this.osmNodeGeoJSON || {type:'FeatureCollection',features:[]});
       if(coords.length>=2) this.fitMapToCoords(map,coords,16);
       else if(this.origin&&this.destination){
@@ -1098,6 +1351,7 @@ tailwind.config = {
       this.setMapSourceData(map,'vr-route-traffic',{type:'FeatureCollection',features:altFeature?[altFeature]:[]});
       this.setMapSourceData(map,'vr-highlight-traffic',{type:'FeatureCollection',features:hiFeature?[hiFeature]:[]});
       this.setMapSourceData(map,'vr-endpoints-traffic',this.endpointsFeature());
+      this.ensureLocationMarkers(map, 'traffic');
       if(this.mapLayer==='NODES') this.setMapSourceData(map,'vr-nodes-traffic',this.osmNodeGeoJSON || {type:'FeatureCollection',features:[]});
       if(base.length>=2) this.fitMapToCoords(map,base,16);
       else if(this.origin&&this.destination) this.fitMapToCoords(map,[[this.origin.lat,this.origin.lng],[this.destination.lat,this.destination.lng]],14);
