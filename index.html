@@ -9,6 +9,15 @@
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.css"/>
+<style>
+  #vector-map-map, #traffic-map-map { position:absolute; inset:0; width:100%; height:100%; z-index:1; }
+  .maplibregl-ctrl-group { background: rgba(32,31,34,.92); border: 1px solid #353437; }
+  .maplibregl-ctrl-group button { filter: invert(1); }
+  .maplibregl-ctrl-attrib { background: rgba(19,19,21,.82) !important; color:#bcc9cd; font: 10px 'JetBrains Mono', monospace; }
+  .maplibregl-ctrl-attrib a { color:#4cd7f6; }
+  .map-error { position:absolute; inset:50% auto auto 50%; transform:translate(-50%,-50%); z-index:40; padding:12px 16px; border:1px solid #93000a; border-radius:8px; background:rgba(19,19,21,.96); color:#ffb4ab; font:12px 'JetBrains Mono',monospace; box-shadow:0 18px 40px rgba(0,0,0,.4); }
+</style>
 
 <style>
 @layer base {
@@ -102,13 +111,6 @@ tailwind.config = {
           <span class="font-body-md text-body-md truncate">Traffic Intel</span>
         </div>
         <kbd class="font-label-sm text-label-sm px-space-xs py-0.5 rounded bg-surface-container text-outline group-hover:text-on-surface">⌘2</kbd>
-      </a>
-      <a class="flex items-center justify-between px-space-md py-space-sm rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors group" data-path="offline-maps-manager" href="#">
-        <div class="flex items-center gap-space-md min-w-0">
-          <span class="material-symbols-outlined text-[18px]">offline_bolt</span>
-          <span class="font-body-md text-body-md truncate">Offline Maps</span>
-        </div>
-        <kbd class="font-label-sm text-label-sm px-space-xs py-0.5 rounded bg-surface-container text-outline group-hover:text-on-surface">⌘3</kbd>
       </a>
     </nav>
   </div>
@@ -340,10 +342,10 @@ tailwind.config = {
         <!-- DOMINANT INTERACTIVE MAP VIEWPORT (RIGHT) -->
         <div class="flex-1 h-full relative bg-surface-container-lowest overflow-hidden">
           <!-- Background Grid CSS -->
-          <div class="absolute inset-0 opacity-10" style="background-image: radial-gradient(#3d494c 1px, transparent 1px); background-size: 24px 24px;"></div>
+          <div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: radial-gradient(#3d494c 1px, transparent 1px); background-size: 24px 24px;"></div>
           
-          <!-- Live GIS Map Rendering Canvas -->
-          <canvas class="w-full h-full block cursor-crosshair relative z-10" id="vector-map-canvas"></canvas>
+          <!-- Live OSM Vector Map Rendering -->
+          <div id="vector-map-map" aria-label="OpenStreetMap vector map"></div>
 
           <!-- Floating Map Layer Selector HUD (Top Right) -->
           <div id="map-telemetry" class="absolute bottom-4 left-6 bg-surface-container-low/90 backdrop-blur-md p-space-sm rounded-xl shadow-xl z-30 font-code-telemetry text-code-telemetry text-on-surface-variant border border-surface-container-highest hidden">
@@ -354,7 +356,7 @@ tailwind.config = {
           </div>
 
           <div class="absolute bottom-2 right-3 z-30 font-code-telemetry text-[9px] text-outline bg-surface-container-low/70 px-1.5 py-0.5 rounded">
-            © OpenStreetMap contributors
+            OpenFreeMap © OpenMapTiles · Data from OpenStreetMap
           </div>
 
           <div class="absolute top-4 right-6 bg-surface-container-low/90 backdrop-blur-md p-space-sm rounded-xl flex items-center gap-space-sm shadow-xl z-30 font-label-md text-label-md border border-surface-container-highest">
@@ -445,14 +447,14 @@ tailwind.config = {
         </div>
 
         <div class="flex-1 h-full relative bg-surface-container-lowest overflow-hidden">
-          <div class="absolute inset-0 opacity-10" style="background-image: radial-gradient(#3d494c 1px, transparent 1px); background-size: 24px 24px;"></div>
-          <canvas class="w-full h-full block cursor-crosshair relative z-10" id="traffic-map-canvas"></canvas>
+          <div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: radial-gradient(#3d494c 1px, transparent 1px); background-size: 24px 24px;"></div>
+          <div id="traffic-map-map" aria-label="Traffic intelligence OpenStreetMap vector map"></div>
           <div class="absolute top-4 right-6 bg-surface-container-low/90 backdrop-blur-md p-space-sm rounded-xl flex items-center gap-space-sm shadow-xl z-30 font-label-md text-label-md border border-surface-container-highest">
             <span class="h-1.5 w-1.5 rounded-full bg-secondary"></span>
             <span class="uppercase text-secondary">Congestion Injection Studio</span>
           </div>
           <div class="absolute bottom-2 right-3 z-30 font-code-telemetry text-[9px] text-outline bg-surface-container-low/70 px-1.5 py-0.5 rounded">
-            © OpenStreetMap contributors
+            OpenFreeMap © OpenMapTiles · Data from OpenStreetMap
           </div>
         </div>
       </section>
@@ -461,6 +463,11 @@ tailwind.config = {
   </main>
 </div>
 
+<script type="module">
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.mjs';
+  window.maplibregl = maplibregl;
+  window.dispatchEvent(new Event('maplibre-ready'));
+</script>
 <script>
 (function() {
   // Google Apps Script Backend URL Provided by user
@@ -476,6 +483,13 @@ tailwind.config = {
     trafficAlternative: null,
     trafficBaseline: null,
     trafficSegments: [],
+    mainMap: null,
+    trafficMap: null,
+    mainMapReady: false,
+    trafficMapReady: false,
+    maplibreReady: false,
+    osmNodeRequest: null,
+    osmNodeCache: new Map(),
     
     // State to hold actual coordinates behind the scenes
     origin: { name: 'Chennai Central (MAS)', lat: 13.0827, lng: 80.2707 },
@@ -484,7 +498,7 @@ tailwind.config = {
     timers: { origin: null, destination: null },
 
     init: function() {
-      this.initCanvases();
+      this.initRealMaps();
       this.initTrafficStudio();
       this.setupGeocoding('origin');
       this.setupGeocoding('destination');
@@ -495,6 +509,127 @@ tailwind.config = {
         const p = document.getElementById('ping-latency');
         if(p) p.innerText = (12 + Math.random() * 5).toFixed(1) + 'ms';
       }, 2500);
+    },
+
+    initRealMaps: function() {
+      const start = () => {
+        if (!window.maplibregl || this.mainMap || this.trafficMap) return;
+        this.maplibreReady = true;
+        const styleUrl = 'https://tiles.openfreemap.org/styles/liberty';
+        const base = {
+          style: styleUrl,
+          center: [this.origin.lng, this.origin.lat],
+          zoom: 12.5,
+          pitch: 0,
+          attributionControl: false,
+          dragRotate: true,
+          touchZoomRotate: true,
+          cooperativeGestures: false
+        };
+
+        this.mainMap = new window.maplibregl.Map(Object.assign({ container: 'vector-map-map' }, base));
+        this.trafficMap = new window.maplibregl.Map(Object.assign({ container: 'traffic-map-map' }, base));
+
+        this.mainMap.addControl(new window.maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-left');
+        this.trafficMap.addControl(new window.maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-left');
+
+        this.mainMap.on('load', () => {
+          this.mainMapReady = true;
+          this.addRealMapLayers(this.mainMap, 'main');
+          this.renderMainMap();
+        });
+        this.trafficMap.on('load', () => {
+          this.trafficMapReady = true;
+          this.addRealMapLayers(this.trafficMap, 'traffic');
+          this.renderTrafficMap();
+        });
+
+        const resizeMaps = () => {
+          try { if (this.mainMap) this.mainMap.resize(); } catch(e) {}
+          try { if (this.trafficMap) this.trafficMap.resize(); } catch(e) {}
+        };
+        window.addEventListener('resize', resizeMaps);
+        document.addEventListener('visibilitychange', resizeMaps);
+      };
+
+      if (window.maplibregl) start();
+      else window.addEventListener('maplibre-ready', start, { once: true });
+    },
+
+    addRealMapLayers: function(map, mapKind) {
+      if (!map) return;
+      try {
+        // Existing OpenFreeMap vector tiles already contain real OSM roads/buildings.
+        // Add a subtle 3D building layer when the style exposes a building vector layer.
+        const layers = map.getStyle()?.layers || [];
+        const building = layers.find(l => l.type === 'fill' && typeof l['source-layer'] === 'string' && /building/i.test(l['source-layer']));
+        if (building && !map.getLayer('vr-3d-buildings-' + mapKind)) {
+          const extrusion = {
+            id: 'vr-3d-buildings-' + mapKind,
+            type: 'fill-extrusion',
+            source: building.source,
+            'source-layer': building['source-layer'],
+            minzoom: 15,
+            paint: {
+              'fill-extrusion-color': '#737d80',
+              'fill-extrusion-opacity': 0.52,
+              'fill-extrusion-height': ['coalesce', ['get','render_height'], ['get','height'], 8],
+              'fill-extrusion-base': ['coalesce', ['get','render_min_height'], ['get','min_height'], 0]
+            }
+          };
+          const firstSymbol = layers.find(l => l.type === 'symbol')?.id;
+          map.addLayer(extrusion, firstSymbol);
+        }
+      } catch (e) {
+        console.warn('3D OSM building layer unavailable:', e);
+      }
+
+      const ensureGeoJson = (id, data) => {
+        if (!map.getSource(id)) {
+          map.addSource(id, { type:'geojson', data });
+          return true;
+        }
+        map.getSource(id).setData(data);
+        return false;
+      };
+
+      ensureGeoJson('vr-route-' + mapKind, {type:'FeatureCollection',features:[]});
+      ensureGeoJson('vr-baseline-' + mapKind, {type:'FeatureCollection',features:[]});
+      ensureGeoJson('vr-highlight-' + mapKind, {type:'FeatureCollection',features:[]});
+      ensureGeoJson('vr-endpoints-' + mapKind, {type:'FeatureCollection',features:[]});
+      ensureGeoJson('vr-nodes-' + mapKind, {type:'FeatureCollection',features:[]});
+
+      if (!map.getLayer('vr-baseline-line-' + mapKind)) {
+        map.addLayer({ id:'vr-baseline-line-' + mapKind, type:'line', source:'vr-baseline-' + mapKind, layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#6b7476','line-width':4,'line-opacity':0.75,'line-dasharray':[2,2]} });
+      }
+      if (!map.getLayer('vr-route-line-' + mapKind)) {
+        map.addLayer({ id:'vr-route-line-' + mapKind, type:'line', source:'vr-route-' + mapKind, layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#4cd7f6','line-width':['interpolate',['linear'],['zoom'],8,3,14,5,18,7],'line-opacity':0.96} });
+      }
+      if (!map.getLayer('vr-highlight-line-' + mapKind)) {
+        map.addLayer({ id:'vr-highlight-line-' + mapKind, type:'line', source:'vr-highlight-' + mapKind, layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#ffb4ab','line-width':['interpolate',['linear'],['zoom'],8,6,14,9,18,12],'line-opacity':0.72,'line-blur':1.2} });
+      }
+      if (!map.getLayer('vr-endpoint-circle-' + mapKind)) {
+        map.addLayer({ id:'vr-endpoint-circle-' + mapKind, type:'circle', source:'vr-endpoints-' + mapKind, paint:{'circle-radius':9,'circle-color':['match',['get','kind'],'A','#4edea3','B','#ffb4ab','#4cd7f6'],'circle-stroke-color':'#0e0e10','circle-stroke-width':2} });
+      }
+      if (!map.getLayer('vr-node-circle-' + mapKind)) {
+        map.addLayer({ id:'vr-node-circle-' + mapKind, type:'circle', source:'vr-nodes-' + mapKind, paint:{'circle-radius':['interpolate',['linear'],['zoom'],10,1.5,15,2.5,19,4],'circle-color':'#4edea3','circle-opacity':0.9,'circle-stroke-color':'#0e0e10','circle-stroke-width':0.5} }, );
+      }
+      map.setLayoutProperty('vr-node-circle-' + mapKind, 'visibility', 'none');
+
+      // Click any road to select it for Traffic Intel when that view is active.
+      if (mapKind === 'traffic') {
+        map.on('click', e => {
+          const features = map.queryRenderedFeatures(e.point).filter(f => typeof f.layer?.id === 'string' && /road|motorway|street|highway/i.test(f.layer.id));
+          if (!features.length) return;
+          const feature = features[0];
+          const name = feature.properties?.name || feature.properties?.name_en || 'Mapped road segment';
+          const select = document.getElementById('traffic-segment-select');
+          if (select && select.options.length) {
+            const match = Array.from(select.options).find(o => o.textContent.includes(name));
+            if (match) { select.value = match.value; select.dispatchEvent(new Event('change')); }
+          }
+        });
+      }
     },
 
     setupGeocoding: function(type) {
@@ -591,6 +726,10 @@ tailwind.config = {
       label.innerText = `LAT/LON: ${data.lat.toFixed(4)}, ${data.lng.toFixed(4)}`;
       label.classList.add('text-primary');
       setTimeout(() => label.classList.remove('text-primary'), 1000);
+      const map=this.mainMap;
+      if(map && this.mainMapReady) { map.easeTo({center:[data.lng,data.lat],duration:450}); this.renderMainMap(); }
+      const tmap=this.trafficMap;
+      if(tmap && this.trafficMapReady) this.renderTrafficMap();
     },
 
     swapNodes: function() {
@@ -706,8 +845,9 @@ tailwind.config = {
         return this.fetchOSMRoute(payload)
           .then(data => this.displayResults(data))
           .catch(osmErr => {
-            console.warn("OSM route request failed; using local fallback:", osmErr);
-            this.displayResults(this.generateFallbackMock(payload));
+            console.error("OSM routing failed:", osmErr);
+            errAlert.innerText = "Routing error: Could not obtain real road geometry. Please try again.";
+            errAlert.classList.remove('hidden');
           });
       })
       .finally(() => {
@@ -843,56 +983,21 @@ tailwind.config = {
       document.getElementById('result-card').classList.remove('hidden');
       stepsContainer.classList.remove('hidden');
       this.populateTrafficSegments();
-      this.drawPathSimulation(data);
-    },
-
-    generateFallbackMock: function(req) {
-      const d = this.haversineKm([req.source.lat, req.source.lng], [req.destination.lat, req.destination.lng]);
-      const speedKmH = req.mode === 'WALK' ? 5 : req.mode === 'CYCLE' ? 15 : 50;
-      const travelMin = (d / speedKmH) * 60;
-      return {
-        route: {
-          travelMin: travelMin.toFixed(0),
-          distanceKm: d.toFixed(1),
-          trafficLevel: 'OFFLINE',
-          segments: [
-            { instruction: 'Proceed toward destination', distanceKm: (d * 0.5).toFixed(2) },
-            { instruction: 'Continue on the projected route', distanceKm: (d * 0.5).toFixed(2) },
-            { instruction: 'Arrive at destination', distanceKm: '0.00' }
-          ],
-          routeCoordinates: [[req.source.lat, req.source.lng], [req.destination.lat, req.destination.lng]],
-          stats: { nodesExplored: 2, executionMs: 0 }
-        },
-        cache: { status: 'LOCAL FALLBACK' }
-      };
+      this.renderMainMap(data);
+      this.renderTrafficMap();
     },
 
     initCanvases: function() {
-      const c = document.getElementById('vector-map-canvas');
-      if(!c) return;
-      const resize = () => {
-        this.resizeCanvasById('vector-map-canvas');
-        this.resizeCanvasById('traffic-map-canvas');
-        this.drawMainMap();
-        this.drawTrafficMap();
-      };
-      window.addEventListener('resize', resize);
-      resize();
+      // Backward-compatible alias retained for existing callers; actual rendering is MapLibre.
+      this.initRealMaps();
     },
 
     resizeCanvasById: function(id) {
-      const c = document.getElementById(id);
-      if (!c || !c.parentElement) return;
-      c.width = c.parentElement.clientWidth;
-      c.height = c.parentElement.clientHeight;
-    },
-
-    drawMainMap: function() {
-      const c = document.getElementById('vector-map-canvas');
-      if(!c) return;
-      const ctx = c.getContext('2d');
-      ctx.clearRect(0,0,c.width,c.height);
-      if (this.currentRouteData) this.drawPathSimulation(this.currentRouteData);
+      // Backward-compatible alias; canvas elements were replaced by MapLibre containers.
+      try {
+        if (id === 'vector-map-canvas' && this.mainMap) this.mainMap.resize();
+        if (id === 'traffic-map-canvas' && this.trafficMap) this.trafficMap.resize();
+      } catch(e) {}
     },
 
     setMapLayer: function(layer) {
@@ -907,95 +1012,170 @@ tailwind.config = {
       if (n) n.className = layer === 'NODES' ? active : inactive;
       if (hud) hud.classList.remove('hidden');
       if (state) state.innerText = layer === 'NODES' ? 'OSM NODES' : 'VECTOR GRAPH';
-      this.drawMainMap();
+      const visibility = layer === 'NODES' ? 'visible' : 'none';
+      [
+        ['mainMap','main'],
+        ['trafficMap','traffic']
+      ].forEach(([key,kind])=>{
+        const map=this[key];
+        if(map && map.getLayer('vr-node-circle-'+kind)) map.setLayoutProperty('vr-node-circle-'+kind,'visibility',visibility);
+      });
+      if (layer === 'NODES') this.refreshOSMNodes();
+      this.updateMapTelemetry();
+    },
+
+    drawMainMap: function(data) {
+      this.renderMainMap(data || this.currentRouteData);
     },
 
     drawPathSimulation: function(data) {
-      const c = document.getElementById('vector-map-canvas');
-      if(!c) return;
-      const ctx = c.getContext('2d');
-      const w = c.width, h = c.height;
-      ctx.clearRect(0,0,w,h);
-
-      ctx.strokeStyle = '#2a2a2c';
-      ctx.lineWidth = 1;
-      for(let i=0;i<w;i+=40){ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i,h);ctx.stroke();}
-      for(let i=0;i<h;i+=40){ctx.beginPath();ctx.moveTo(0,i);ctx.lineTo(w,i);ctx.stroke();}
-
-      let coords = [];
-      if (data && data.route && Array.isArray(data.route.routeCoordinates)) {
-        coords = data.route.routeCoordinates.filter(p =>
-          Array.isArray(p) && p.length >= 2 &&
-          Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1]))
-        );
-      }
-      if (coords.length < 2) {
-        coords = [[this.origin.lat, this.origin.lng], [this.destination.lat, this.destination.lng]];
-      }
-
-      let minLat=Infinity,maxLat=-Infinity,minLng=Infinity,maxLng=-Infinity;
-      coords.forEach(p=>{
-        const lat=Number(p[0]),lng=Number(p[1]);
-        minLat=Math.min(minLat,lat);maxLat=Math.max(maxLat,lat);
-        minLng=Math.min(minLng,lng);maxLng=Math.max(maxLng,lng);
-      });
-      const latRange=maxLat-minLat||0.01;
-      const lngRange=maxLng-minLng||0.01;
-
-      const projected=coords.map(p=>({
-        x:w*0.15+(w*0.7)*((Number(p[1])-minLng)/lngRange),
-        y:h*0.15+(h*0.7)*(1-(Number(p[0])-minLat)/latRange)
-      }));
-
-      ctx.shadowColor='#06b6d4';
-      ctx.shadowBlur=18;
-      ctx.strokeStyle='#4cd7f6';
-      ctx.lineWidth=5;
-      ctx.lineCap='round';
-      ctx.lineJoin='round';
-      ctx.beginPath();
-      ctx.moveTo(projected[0].x,projected[0].y);
-      for(let i=1;i<projected.length;i++)ctx.lineTo(projected[i].x,projected[i].y);
-      ctx.stroke();
-      ctx.shadowBlur=0;
-
-      if (this.mapLayer === 'NODES') {
-        ctx.save();
-        ctx.shadowColor='#4edea3';
-        ctx.shadowBlur=7;
-        projected.forEach((p,i)=>{
-          ctx.fillStyle=(i===0||i===projected.length-1)?'#e5e1e4':'#4edea3';
-          ctx.beginPath();
-          ctx.arc(p.x,p.y,(i===0||i===projected.length-1)?4:2.2,0,Math.PI*2);
-          ctx.fill();
-        });
-        ctx.restore();
-      }
-
-      const drawPin=(p,color,label)=>{
-        ctx.fillStyle=color;
-        ctx.beginPath();ctx.arc(p.x,p.y,11,0,Math.PI*2);ctx.fill();
-        ctx.fillStyle='#0e0e10';
-        ctx.font='bold 12px JetBrains Mono';
-        ctx.textAlign='center';
-        ctx.textBaseline='middle';
-        ctx.fillText(label,p.x,p.y+1);
-      };
-      drawPin(projected[0],'#4edea3','A');
-      drawPin(projected[projected.length-1],'#ffb4ab','B');
-
-      const nodeEl=document.getElementById('map-node-count');
-      const edgeEl=document.getElementById('map-edge-count');
-      const hud=document.getElementById('map-telemetry');
-      if(nodeEl)nodeEl.innerText=projected.length.toLocaleString();
-      if(edgeEl)edgeEl.innerText=Math.max(0,projected.length-1).toLocaleString();
-      if(hud)hud.classList.remove('hidden');
+      // Kept as a compatibility hook for the existing displayResults() flow.
+      this.renderMainMap(data || this.currentRouteData);
     },
 
-    escapeHtml: function(value) {
-      return String(value ?? '').replace(/[&<>"']/g, ch => ({
-        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-      }[ch]));
+    coordsToLine: function(coords) {
+      return (Array.isArray(coords) ? coords : [])
+        .map(p => [Number(p[1]), Number(p[0])])
+        .filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+    },
+
+    lineFeature: function(coords, props={}) {
+      const line = this.coordsToLine(coords);
+      if (line.length < 2) return null;
+      return {type:'Feature',properties:props,geometry:{type:'LineString',coordinates:line}};
+    },
+
+    endpointsFeature: function() {
+      return {type:'FeatureCollection',features:[
+        {type:'Feature',properties:{kind:'A'},geometry:{type:'Point',coordinates:[this.origin.lng,this.origin.lat]}},
+        {type:'Feature',properties:{kind:'B'},geometry:{type:'Point',coordinates:[this.destination.lng,this.destination.lat]}}
+      ]};
+    },
+
+    setMapSourceData: function(map, sourceId, data) {
+      if (!map || !map.getSource(sourceId)) return;
+      map.getSource(sourceId).setData(data);
+    },
+
+    fitMapToCoords: function(map, coords, maxZoom=16) {
+      if (!map || !Array.isArray(coords) || coords.length < 2 || !window.maplibregl) return;
+      const lngLat = this.coordsToLine(coords);
+      if (lngLat.length < 2) return;
+      const bounds = lngLat.reduce((b,p)=>b.extend(p), new window.maplibregl.LngLatBounds(lngLat[0],lngLat[0]));
+      map.fitBounds(bounds,{padding:{top:90,right:80,bottom:80,left:80},maxZoom,duration:650});
+    },
+
+    renderMainMap: function(data) {
+      const map=this.mainMap;
+      if(!map || !this.mainMapReady) return;
+      try{ map.resize(); }catch(e){}
+      const coords=Array.isArray(data?.route?.routeCoordinates) ? data.route.routeCoordinates : [];
+      const line=this.lineFeature(coords);
+      this.setMapSourceData(map,'vr-route-main',{type:'FeatureCollection',features:line?[line]:[]});
+      this.setMapSourceData(map,'vr-baseline-main',{type:'FeatureCollection',features:[]});
+      this.setMapSourceData(map,'vr-highlight-main',{type:'FeatureCollection',features:[]});
+      this.setMapSourceData(map,'vr-endpoints-main',this.endpointsFeature());
+      if(this.mapLayer==='NODES') this.setMapSourceData(map,'vr-nodes-main',this.osmNodeGeoJSON || {type:'FeatureCollection',features:[]});
+      if(coords.length>=2) this.fitMapToCoords(map,coords,16);
+      else if(this.origin&&this.destination){
+        const pair=[[this.origin.lat,this.origin.lng],[this.destination.lat,this.destination.lng]];
+        this.fitMapToCoords(map,pair,14);
+      }
+    },
+
+    renderTrafficMap: function() {
+      const map=this.trafficMap;
+      if(!map || !this.trafficMapReady) return;
+      try{ map.resize(); }catch(e){}
+      const base=this.trafficBaseline?.coords || [];
+      const alt=this.trafficAlternative?.routeCoordinates || base;
+      const selected=this.trafficAlternative?.segmentIndex ?? -1;
+      const highlight=(selected>=0 && base[selected] && base[selected+1]) ? [base[selected],base[selected+1]] : [];
+      const baseFeature=this.lineFeature(base,{role:'baseline'});
+      const altFeature=this.lineFeature(alt,{role:'active'});
+      const hiFeature=this.lineFeature(highlight,{role:'selected'});
+      this.setMapSourceData(map,'vr-baseline-traffic',{type:'FeatureCollection',features:baseFeature?[baseFeature]:[]});
+      this.setMapSourceData(map,'vr-route-traffic',{type:'FeatureCollection',features:altFeature?[altFeature]:[]});
+      this.setMapSourceData(map,'vr-highlight-traffic',{type:'FeatureCollection',features:hiFeature?[hiFeature]:[]});
+      this.setMapSourceData(map,'vr-endpoints-traffic',this.endpointsFeature());
+      if(this.mapLayer==='NODES') this.setMapSourceData(map,'vr-nodes-traffic',this.osmNodeGeoJSON || {type:'FeatureCollection',features:[]});
+      if(base.length>=2) this.fitMapToCoords(map,base,16);
+      else if(this.origin&&this.destination) this.fitMapToCoords(map,[[this.origin.lat,this.origin.lng],[this.destination.lat,this.destination.lng]],14);
+    },
+
+    fetchOSMNodes: async function(map) {
+      if(!map || !this.maplibreReady) return;
+      const bounds=map.getBounds();
+      let south=bounds.getSouth(), west=bounds.getWest(), north=bounds.getNorth(), east=bounds.getEast();
+      const maxSpan=0.05;
+      const center=map.getCenter();
+      if((north-south)>maxSpan){south=center.lat-maxSpan/2;north=center.lat+maxSpan/2;}
+      if((east-west)>maxSpan){west=center.lng-maxSpan/2;east=center.lng+maxSpan/2;}
+      const key=[south,west,north,east].map(v=>Number(v).toFixed(4)).join(',');
+      const cached=this.osmNodeCache.get(key);
+      if(cached && Date.now()-cached.time<120000){
+        this.osmNodeGeoJSON=cached.geojson;
+        this.osmNodeStats=cached.stats;
+        this.applyOSMNodes();
+        return;
+      }
+
+      const query=`[out:json][timeout:12];way["highway"](${south},${west},${north},${east});out geom;`;
+      const controller=new AbortController();
+      this.osmNodeRequest?.abort?.();
+      this.osmNodeRequest=controller;
+      try {
+        const res=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',headers:{'Content-Type':'text/plain;charset=UTF-8'},body:query,signal:controller.signal});
+        if(!res.ok) throw new Error('Overpass HTTP '+res.status);
+        const data=await res.json();
+        const nodeMap=new Map();
+        let edges=0;
+        (data.elements||[]).forEach(way=>{
+          const geom=Array.isArray(way.geometry)?way.geometry:[];
+          for(let i=0;i<geom.length;i++){
+            const g=geom[i];
+            if(!Number.isFinite(g.lat)||!Number.isFinite(g.lon)) continue;
+            nodeMap.set(g.lat.toFixed(6)+','+g.lon.toFixed(6),[g.lon,g.lat]);
+            if(i>0) edges++;
+          }
+        });
+        const features=Array.from(nodeMap.values()).map((p)=>({type:'Feature',properties:{},geometry:{type:'Point',coordinates:p}}));
+        this.osmNodeGeoJSON={type:'FeatureCollection',features};
+        this.osmNodeStats={nodes:features.length,edges};
+        this.osmNodeCache.set(key,{time:Date.now(),geojson:this.osmNodeGeoJSON,stats:this.osmNodeStats});
+        this.applyOSMNodes();
+      } catch(err){
+        if(err.name!=='AbortError') console.warn('OSM node query failed:',err);
+        // Never create random nodes. If Overpass is unavailable, use real route geometry vertices only.
+        const routeCoords=this.trafficBaseline?.coords || this.currentRouteData?.route?.routeCoordinates || [];
+        const features=(routeCoords||[]).map(p=>({type:'Feature',properties:{fallback:true},geometry:{type:'Point',coordinates:[Number(p[1]),Number(p[0])]}}));
+        this.osmNodeGeoJSON={type:'FeatureCollection',features};
+        this.osmNodeStats={nodes:features.length,edges:Math.max(0,features.length-1),fallback:true};
+        this.applyOSMNodes();
+      }
+    },
+
+    applyOSMNodes: function() {
+      const main=this.mainMap, traffic=this.trafficMap;
+      if(main && this.mainMapReady) this.setMapSourceData(main,'vr-nodes-main',this.osmNodeGeoJSON||{type:'FeatureCollection',features:[]});
+      if(traffic && this.trafficMapReady) this.setMapSourceData(traffic,'vr-nodes-traffic',this.osmNodeGeoJSON||{type:'FeatureCollection',features:[]});
+      this.updateMapTelemetry();
+    },
+
+    refreshOSMNodes: function() {
+      if(this.mapLayer!=='NODES') return;
+      const map=this.trafficMapReady ? (document.getElementById('view-traffic-intelligence')?.classList.contains('hidden') ? this.mainMap : this.trafficMap) : this.mainMap;
+      this.fetchOSMNodes(map);
+    },
+
+    updateMapTelemetry: function() {
+      const n=this.osmNodeStats?.nodes ?? 0;
+      const e=this.osmNodeStats?.edges ?? 0;
+      const set=(id,val)=>{const el=document.getElementById(id);if(el)el.innerText=val;};
+      set('map-node-count',this.mapLayer==='NODES' ? n.toLocaleString() : '--');
+      set('map-edge-count',this.mapLayer==='NODES' ? e.toLocaleString() : '--');
+      const layer=document.getElementById('map-layer-state');
+      if(layer) layer.innerText=this.mapLayer==='NODES'?'OSM NODES':'VECTOR GRAPH';
     },
 
     initTrafficStudio: function() {
@@ -1227,83 +1407,7 @@ tailwind.config = {
     },
 
     drawTrafficMap: function() {
-      const c=document.getElementById('traffic-map-canvas');
-      if(!c||!this.trafficBaseline||this.trafficBaseline.coords.length<2)return;
-
-      const ctx=c.getContext('2d');
-      const w=c.width,h=c.height;
-      ctx.clearRect(0,0,w,h);
-
-      const base=this.trafficBaseline.coords;
-      const alt=this.trafficAlternative?.routeCoordinates||base;
-      const all=base.concat(alt);
-
-      let minLat=Infinity,maxLat=-Infinity,minLng=Infinity,maxLng=-Infinity;
-      all.forEach(p=>{
-        minLat=Math.min(minLat,p[0]);
-        maxLat=Math.max(maxLat,p[0]);
-        minLng=Math.min(minLng,p[1]);
-        maxLng=Math.max(maxLng,p[1]);
-      });
-
-      const latRange=maxLat-minLat||0.01;
-      const lngRange=maxLng-minLng||0.01;
-      const project=p=>({
-        x:w*0.12+(w*0.76)*((p[1]-minLng)/lngRange),
-        y:h*0.15+(h*0.70)*(1-(p[0]-minLat)/latRange)
-      });
-
-      ctx.strokeStyle='#2a2a2c';
-      ctx.lineWidth=1;
-      for(let x=0;x<w;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}
-      for(let y=0;y<h;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
-
-      const line=(coords,stroke,width,dash=[])=>{
-        if(coords.length<2)return;
-        ctx.save();
-        ctx.strokeStyle=stroke;
-        ctx.lineWidth=width;
-        ctx.setLineDash(dash);
-        ctx.lineCap='round';
-        ctx.lineJoin='round';
-        const first=project(coords[0]);
-        ctx.beginPath();
-        ctx.moveTo(first.x,first.y);
-        for(let i=1;i<coords.length;i++){
-          const p=project(coords[i]);
-          ctx.lineTo(p.x,p.y);
-        }
-        ctx.stroke();
-        ctx.restore();
-      };
-
-      line(base,'#596164',3,[7,7]);
-      line(alt,'#4cd7f6',5);
-
-      const pin=(p,color,label)=>{
-        ctx.fillStyle=color;
-        ctx.beginPath();ctx.arc(p.x,p.y,11,0,Math.PI*2);ctx.fill();
-        ctx.fillStyle='#0e0e10';
-        ctx.font='bold 12px JetBrains Mono';
-        ctx.textAlign='center';
-        ctx.textBaseline='middle';
-        ctx.fillText(label,p.x,p.y+1);
-      };
-      pin(project(base[0]),'#4edea3','A');
-      pin(project(base[base.length-1]),'#ffb4ab','B');
-
-      const segIndex=this.trafficAlternative?.segmentIndex??0;
-      if(base[segIndex]&&base[segIndex+1]){
-        const a=project(base[segIndex]),b=project(base[segIndex+1]);
-        ctx.strokeStyle=this.trafficMultiplier>=3?'#ffb4ab':this.trafficMultiplier>1?'#c0c1ff':'#4edea3';
-        ctx.lineWidth=8;
-        ctx.globalAlpha=0.45;
-        ctx.beginPath();
-        ctx.moveTo(a.x,a.y);
-        ctx.lineTo(b.x,b.y);
-        ctx.stroke();
-        ctx.globalAlpha=1;
-      }
+      this.renderTrafficMap();
     },
 
     initSidebarNavigation: function() {
@@ -1323,11 +1427,11 @@ tailwind.config = {
         });
 
         if(path==='traffic-intelligence'){
-          this.resizeCanvasById('traffic-map-canvas');
-          this.drawTrafficMap();
+          try { if(this.trafficMap) { this.trafficMap.resize(); this.renderTrafficMap(); } } catch(e) {}
+          if(this.mapLayer==='NODES') this.refreshOSMNodes();
         }else{
-          this.resizeCanvasById('vector-map-canvas');
-          this.drawMainMap();
+          try { if(this.mainMap) { this.mainMap.resize(); this.renderMainMap(); } } catch(e) {}
+          if(this.mapLayer==='NODES') this.refreshOSMNodes();
         }
       };
 
