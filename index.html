@@ -323,6 +323,17 @@ tailwind.config = {
               </div>
             </div>
 
+            <!-- STEP-BY-STEP INSTRUCTIONS -->
+            <div id="step-by-step-container" class="hidden bg-surface-container-lowest p-space-md rounded-xl flex flex-col gap-space-sm shadow-md border border-surface-container-highest mt-2">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="material-symbols-outlined text-primary text-[18px]">directions</span>
+                <span class="font-headline-md text-headline-md text-on-surface font-semibold">Turn-by-Turn Navigation</span>
+              </div>
+              <div id="step-by-step-list" class="flex flex-col gap-2 max-h-48 overflow-y-auto custom-scroll pr-1">
+                <!-- Steps injected here via JS -->
+              </div>
+            </div>
+
           </div>
         </div>
 
@@ -560,6 +571,9 @@ tailwind.config = {
       // Call the User's Provided Backend URL
       fetch(APPS_SCRIPT_URL, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8' // Bypasses strict CORS preflight on Google Apps Script
+        },
         body: JSON.stringify({ action: 'calculateRoute', payload: payload })
       })
       .then(r => r.json())
@@ -599,19 +613,67 @@ tailwind.config = {
       document.getElementById('res-exec').innerText = (r.stats.executionMs || 0) + ' ms';
       document.getElementById('res-cache').innerText = data.cache && data.cache.status ? data.cache.status : 'CALCULATED';
 
+      // Step-by-Step Instructions Rendering
+      const stepsContainer = document.getElementById('step-by-step-container');
+      const stepsList = document.getElementById('step-by-step-list');
+      stepsList.innerHTML = '';
+
+      let segments = data.route.segments || [];
+
+      if (segments.length === 0) {
+         stepsList.innerHTML = '<div class="text-outline text-sm text-center py-2">No detailed steps available.</div>';
+      } else {
+         segments.forEach((seg, index) => {
+            let instr = seg.instruction || `Travel along ${seg.road || 'mapped road'}`;
+            stepsList.innerHTML += `
+               <div class="flex items-start gap-3 p-2 rounded bg-surface-container border border-surface-container-highest">
+                  <div class="mt-0.5 w-6 h-6 rounded-full bg-surface-container-high flex items-center justify-center flex-shrink-0 text-primary">
+                     <span class="material-symbols-outlined text-[14px]">turn_right</span>
+                  </div>
+                  <div class="flex flex-col flex-1">
+                     <span class="font-body-sm text-on-surface font-medium">${instr}</span>
+                     <span class="font-code-telemetry text-[10px] text-outline">${seg.distanceKm} km</span>
+                  </div>
+               </div>
+            `;
+         });
+      }
+      
       document.getElementById('result-card').classList.remove('hidden');
-      this.drawPathSimulation();
+      stepsContainer.classList.remove('hidden');
+      this.drawPathSimulation(data);
     },
 
     generateFallbackMock: function(req) {
-      // Generates visually plausible data if the GAS backend rejects CORS request locally
+      // Generates visually plausible data if the GAS backend rejects request locally
       const d = Math.hypot(req.source.lat - req.destination.lat, req.source.lng - req.destination.lng) * 111;
       const isAstar = req.algorithm === 'ASTAR';
+      
+      let speedKmH = 50; // Drive
+      if (req.mode === 'WALK') speedKmH = 5;
+      if (req.mode === 'CYCLE') speedKmH = 15;
+      
+      const travelMin = (d / speedKmH) * 60;
+      
+      // Mock coordinates path for the canvas projection (Adding a dynamic curve)
+      const midLat = (req.source.lat + req.destination.lat)/2 + (Math.random()*0.02 - 0.01);
+      const midLng = (req.source.lng + req.destination.lng)/2 + (Math.random()*0.02 - 0.01);
+
       return {
         route: {
-          travelMin: (d * 1.5).toFixed(1),
+          travelMin: travelMin.toFixed(0),
           distanceKm: d.toFixed(1),
           trafficLevel: Math.random() > 0.6 ? 'HIGH' : 'LOW',
+          segments: [
+            { instruction: "Head towards the main junction", distanceKm: (d * 0.4).toFixed(1) },
+            { instruction: "Turn right and merge onto arterial road", distanceKm: (d * 0.4).toFixed(1) },
+            { instruction: "Arrive at destination", distanceKm: (d * 0.2).toFixed(1) }
+          ],
+          routeCoordinates: [
+            [req.source.lat, req.source.lng],
+            [midLat, midLng],
+            [req.destination.lat, req.destination.lng]
+          ],
           stats: {
             nodesExplored: Math.floor(d * (isAstar ? 15 : 60)),
             executionMs: isAstar ? (12 + Math.random()*10).toFixed(0) : (40 + Math.random()*20).toFixed(0)
@@ -641,32 +703,45 @@ tailwind.config = {
       // Wait for path rendering trigger
     },
 
-    drawPathSimulation: function() {
+    drawPathSimulation: function(data) {
       const c = document.getElementById('vector-map-canvas');
       const ctx = c.getContext('2d');
       const w = c.width, h = c.height;
       
       ctx.clearRect(0,0,w,h);
 
-      // Draw aesthetic high-tech background network
       ctx.strokeStyle = '#2a2a2c';
-      ctx.lineWidth = 1.5;
-      for(let i=0; i<25; i++) {
-        ctx.beginPath();
-        ctx.moveTo(Math.random()*w, Math.random()*h);
-        ctx.lineTo(Math.random()*w, Math.random()*h);
-        ctx.stroke();
+      ctx.lineWidth = 1;
+      for(let i=0; i<w; i+=40) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,h); ctx.stroke(); }
+      for(let i=0; i<h; i+=40) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(w,i); ctx.stroke(); }
+
+      let coords = [];
+      if (data && data.route && data.route.routeCoordinates) {
+        coords = data.route.routeCoordinates;
+      } else {
+        // Fallback generic nodes if nothing passed
+        coords = [[this.origin.lat, this.origin.lng], [this.destination.lat, this.destination.lng]];
       }
 
-      // Generate smooth bezier path
-      const pathNodes = [
-        {x: w*0.15, y: h*0.2},
-        {x: w*0.35, y: h*0.4},
-        {x: w*0.6,  y: h*0.5},
-        {x: w*0.8,  y: h*0.8}
-      ];
+      // Projection Logic: Calculate Bounding Box
+      let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+      coords.forEach(p => {
+        if(p[0] < minLat) minLat = p[0]; if(p[0] > maxLat) maxLat = p[0];
+        if(p[1] < minLng) minLng = p[1]; if(p[1] > maxLng) maxLng = p[1];
+      });
 
-      // Outer Glow
+      const latRange = maxLat - minLat || 0.01;
+      const lngRange = maxLng - minLng || 0.01;
+
+      // Project Latitude/Longitude mathematically to screen Width/Height with 15% padding
+      const projected = coords.map(p => {
+        // Invert Y axis so North (higher lat) is UP
+        const y = h * 0.15 + (h * 0.7) * (1 - (p[0] - minLat) / latRange);
+        const x = w * 0.15 + (w * 0.7) * ((p[1] - minLng) / lngRange);
+        return {x, y};
+      });
+
+      // Outer Glow & Actual Path Route Line
       ctx.shadowColor = '#06b6d4';
       ctx.shadowBlur = 18;
       ctx.strokeStyle = '#4cd7f6';
@@ -675,26 +750,25 @@ tailwind.config = {
       ctx.lineJoin = 'round';
       
       ctx.beginPath();
-      ctx.moveTo(pathNodes[0].x, pathNodes[0].y);
-      for(let i=1; i<pathNodes.length; i++) {
-        // Curve to make it look organic
-        ctx.lineTo(pathNodes[i].x, pathNodes[i].y);
+      ctx.moveTo(projected[0].x, projected[0].y);
+      for(let i=1; i<projected.length; i++) {
+        ctx.lineTo(projected[i].x, projected[i].y);
       }
       ctx.stroke();
       ctx.shadowBlur = 0;
 
-      // Draw Origin / Destination Pins
+      // Draw Origin / Destination Pins matching Geographic start/end
       const drawPin = (p, color, label) => {
         ctx.fillStyle = color;
-        ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x, p.y, 11, 0, Math.PI*2); ctx.fill();
         ctx.fillStyle = '#0e0e10';
-        ctx.font = 'bold 11px JetBrains Mono';
+        ctx.font = 'bold 12px JetBrains Mono';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(label, p.x, p.y + 1);
       };
 
-      drawPin(pathNodes[0], '#4edea3', 'A');
-      drawPin(pathNodes[pathNodes.length-1], '#ffb4ab', 'B');
+      drawPin(projected[0], '#4edea3', 'A');
+      drawPin(projected[projected.length-1], '#ffb4ab', 'B');
     }
   };
 
