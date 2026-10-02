@@ -470,14 +470,6 @@ tailwind.config = {
   // Google Apps Script Backend URL Provided by user
   const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyEPaDYEmhpHWlz33HJa6ebTnmF8K7lCr1xAJgyw7eI54EYiRoxVYgKL2-93GgMJIIN/exec';
 
-  // Supabase (browser-safe PUBLISHABLE key only; the secret key lives in Apps Script properties).
-  // Route logging is done server-side by Code.gs, so no Supabase URL is needed in this file yet.
-  // TomTom key for the live-traffic map overlay (browser). Create it at developer.tomtom.com and restrict it
-  // to your Vercel domain. The SAME kind of key must also be stored in Apps Script as TOMTOM_API_KEY.
-  const TOMTOM_MAP_KEY = '';
-
-  const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_TPAE2NyDvM_ZFlFpRz5wZA_I_wFvHIB';
-
   window.VectorNav = {
     mode: 'DRIVE',
     objective: 'TIME',
@@ -488,7 +480,6 @@ tailwind.config = {
     trafficAlternative: null,
     trafficBaseline: null,
     trafficSegments: [],
-    jams: {},
     mainMap: null,
     trafficMap: null,
     mainMapReady: false,
@@ -865,23 +856,15 @@ tailwind.config = {
       ensureGeoJson('vr-highlight-' + mapKind, {type:'FeatureCollection',features:[]});
       ensureGeoJson('vr-endpoints-' + mapKind, {type:'FeatureCollection',features:[]});
       ensureGeoJson('vr-nodes-' + mapKind, {type:'FeatureCollection',features:[]});
-      ensureGeoJson('vr-live-' + mapKind, {type:'FeatureCollection',features:[]});
-      if (TOMTOM_MAP_KEY && !map.getSource('tt-flow')) {   // live traffic colours painted on the roads themselves
-        map.addSource('tt-flow', { type:'raster', tileSize:256, tiles:['https://api.tomtom.com/traffic/map/4/tile/flow/relative/{z}/{x}/{y}.png?tileSize=256&key=' + TOMTOM_MAP_KEY], attribution:'Traffic &copy; TomTom' });
-        map.addLayer({ id:'tt-flow-layer', type:'raster', source:'tt-flow', paint:{'raster-opacity':0.8} });
-      }
 
       if (!map.getLayer('vr-baseline-line-' + mapKind)) {
         map.addLayer({ id:'vr-baseline-line-' + mapKind, type:'line', source:'vr-baseline-' + mapKind, layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#6b7476','line-width':4,'line-opacity':0.75,'line-dasharray':[2,2]} });
       }
       if (!map.getLayer('vr-route-line-' + mapKind)) {
-        map.addLayer({ id:'vr-route-line-' + mapKind, type:'line', source:'vr-route-' + mapKind, layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':['match',['get','level'],'LOW','#4edea3','MEDIUM','#fbbf24','HIGH','#ef4444','JAM','#b91c1c','#4cd7f6'],'line-width':['interpolate',['linear'],['zoom'],8,3,14,5,18,7],'line-opacity':0.96} });
+        map.addLayer({ id:'vr-route-line-' + mapKind, type:'line', source:'vr-route-' + mapKind, layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#4cd7f6','line-width':['interpolate',['linear'],['zoom'],8,3,14,5,18,7],'line-opacity':0.96} });
       }
       if (!map.getLayer('vr-highlight-line-' + mapKind)) {
         map.addLayer({ id:'vr-highlight-line-' + mapKind, type:'line', source:'vr-highlight-' + mapKind, layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#ffb4ab','line-width':['interpolate',['linear'],['zoom'],8,6,14,9,18,12],'line-opacity':0.72,'line-blur':1.2} });
-      }
-      if (!map.getLayer('vr-live-circle-' + mapKind)) {   // one dot per live TomTom sample: green LOW / amber MODERATE / red HEAVY
-        map.addLayer({ id:'vr-live-circle-' + mapKind, type:'circle', source:'vr-live-' + mapKind, paint:{'circle-radius':7,'circle-color':['match',['get','level'],'LOW','#4edea3','MEDIUM','#fbbf24','HIGH','#ef4444','JAM','#b91c1c','#9ca3af'],'circle-stroke-color':'#0e0e10','circle-stroke-width':2} });
       }
       if (!map.getLayer('vr-endpoint-circle-' + mapKind)) {
         map.addLayer({ id:'vr-endpoint-circle-' + mapKind, type:'circle', source:'vr-endpoints-' + mapKind, paint:{'circle-radius':9,'circle-color':['match',['get','kind'],'A','#4edea3','B','#ffb4ab','#4cd7f6'],'circle-stroke-color':'#0e0e10','circle-stroke-width':2} });
@@ -1204,9 +1187,7 @@ tailwind.config = {
         algorithm: this.objective === 'TIME' ? 'ASTAR' : 'DIJKSTRA',
         objective: this.objective,
         useTraffic: document.getElementById('check-traffic-penalty').checked,
-        heuristicWeight: 1,
-        liveTraffic: true,
-        trafficOverrides: this.jamList()
+        heuristicWeight: 1
       };
 
       btn.disabled = true;
@@ -1366,15 +1347,7 @@ tailwind.config = {
       document.getElementById('res-dist').innerText = (r.distanceKm ?? '--') + ' km';
       
       const tr = document.getElementById('res-traffic');
-      const ti = r.trafficIntensity;   // computed by Code.gs from edge multipliers (simulated traffic)
-      const WORD={LOW:'LOW',MEDIUM:'MODERATE',HIGH:'HEAVY'}, lw=WORD[r.trafficLevel]||r.trafficLevel;
-      tr.innerText = ti ? (lw + ' · ' + ti.percent + '%') : lw;
-      const ls=data.live&&data.live.status, alertEl=document.getElementById('error-alert');
-      if(alertEl&&ls&&['no-key','auth-error','quota'].includes(ls)){
-        alertEl.innerText=({'no-key':'Live traffic is OFF: no TomTom key in Apps Script, so SIMULATED traffic is used.','auth-error':'Live traffic failed: TomTom rejected the API key. Showing free-flow roads.','quota':'Live traffic quota reached. Showing partial data.'})[ls];
-        alertEl.classList.remove('hidden');
-      }
-      tr.title = ti ? ('Traffic intensity ' + ti.percent + '% (' + ti.label + '), +' + ti.delayMin + ' min delay, ' + ti.highShare + '% of route on HIGH roads. Simulated, not live.') : '';
+      tr.innerText = r.trafficLevel;
       tr.className = `font-headline-md text-headline-md font-bold ${r.trafficLevel === 'HIGH' ? 'text-error' : r.trafficLevel === 'LOW' ? 'text-secondary' : 'text-tertiary'}`;
 
       const bar = document.getElementById('res-color-bar');
@@ -1469,16 +1442,6 @@ tailwind.config = {
         .filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]));
     },
 
-    routeFeatures: function(route) {   // one coloured feature per road segment (level comes from live/sim traffic)
-      const segs=(route?.segments||[]).filter(s=>Array.isArray(s.coords)&&s.coords.length>=2);
-      if(segs.length) return segs.map(s=>this.lineFeature(s.coords,{level:s.level})).filter(Boolean);
-      const l=this.lineFeature(route?.routeCoordinates||[]); return l?[l]:[];
-    },
-    liveGeoJSON: function(data) {
-      const f=(data?.live?.samples||[]).map(s=>({type:'Feature',properties:{level:s.level},geometry:{type:'Point',coordinates:[s.lng,s.lat]}}));
-      return {type:'FeatureCollection',features:f};
-    },
-
     lineFeature: function(coords, props={}) {
       const line = this.coordsToLine(coords);
       if (line.length < 2) return null;
@@ -1510,8 +1473,8 @@ tailwind.config = {
       if(!map || !this.mainMapReady) return;
       try{ map.resize(); }catch(e){}
       const coords=Array.isArray(data?.route?.routeCoordinates) ? data.route.routeCoordinates : [];
-      this.setMapSourceData(map,'vr-route-main',{type:'FeatureCollection',features:this.routeFeatures(data?.route)});
-      this.setMapSourceData(map,'vr-live-main',this.liveGeoJSON(data));
+      const line=this.lineFeature(coords);
+      this.setMapSourceData(map,'vr-route-main',{type:'FeatureCollection',features:line?[line]:[]});
       this.setMapSourceData(map,'vr-baseline-main',{type:'FeatureCollection',features:[]});
       this.setMapSourceData(map,'vr-highlight-main',{type:'FeatureCollection',features:[]});
       this.setMapSourceData(map,'vr-endpoints-main',this.endpointsFeature());
@@ -1531,14 +1494,12 @@ tailwind.config = {
       const base=this.trafficBaseline?.coords || [];
       const alt=this.trafficAlternative?.routeCoordinates || base;
       const selected=this.trafficAlternative?.segmentIndex ?? -1;
-      const highlight=this.trafficAlternative?.jamCoords||[];
+      const highlight=(selected>=0 && base[selected] && base[selected+1]) ? [base[selected],base[selected+1]] : [];
       const baseFeature=this.lineFeature(base,{role:'baseline'});
       const altFeature=this.lineFeature(alt,{role:'active'});
       const hiFeature=this.lineFeature(highlight,{role:'selected'});
       this.setMapSourceData(map,'vr-baseline-traffic',{type:'FeatureCollection',features:baseFeature?[baseFeature]:[]});
-      const rf=this.routeFeatures(this.currentRouteData?.route);
-      this.setMapSourceData(map,'vr-route-traffic',{type:'FeatureCollection',features:rf.length?rf:(altFeature?[altFeature]:[])});
-      this.setMapSourceData(map,'vr-live-traffic',this.liveGeoJSON(this.currentRouteData));
+      this.setMapSourceData(map,'vr-route-traffic',{type:'FeatureCollection',features:altFeature?[altFeature]:[]});
       this.setMapSourceData(map,'vr-highlight-traffic',{type:'FeatureCollection',features:hiFeature?[hiFeature]:[]});
       this.setMapSourceData(map,'vr-endpoints-traffic',this.endpointsFeature());
       this.ensureLocationMarkers(map, 'traffic');
@@ -1631,33 +1592,38 @@ tailwind.config = {
       this.populateTrafficSegments();
     },
 
-    // ---- Traffic Intel: jams are sent to the Apps Script A* backend (no client-side fake rerouting) ----
     populateTrafficSegments: function() {
       const select=document.getElementById('traffic-segment-select');
       if(!select)return;
       const note=document.getElementById('traffic-segment-note');
-      const segs=(this.currentRouteData?.route?.segments||[]).filter(s=>Array.isArray(s.ids)&&s.ids.length);
-      this.trafficSegments=segs;
+      const coords=this.trafficBaseline?.coords||[];
       select.innerHTML='';
-      if(!segs.length){
+      this.trafficSegments=[];
+      if(coords.length<2){
         const opt=document.createElement('option');
-        opt.value='-1';opt.textContent='No route segments yet';select.appendChild(opt);
-        if(note)note.innerText=this.currentRouteData?'This route did not come from the A* backend, so traffic cannot be injected. Check the Apps Script URL.':'Calculate a route first to populate road segments.';
+        opt.value='-1';
+        opt.textContent='No route segments yet';
+        select.appendChild(opt);
+        if(note)note.innerText='Calculate a route first to populate road segments.';
         this.resetTrafficMetrics();
         return;
       }
-      segs.forEach((s,i)=>{
+
+      for(let i=0;i<coords.length-1;i++){
+        const d=this.haversineKm(coords[i],coords[i+1]);
+        this.trafficSegments.push({index:i,a:coords[i],b:coords[i+1],distanceKm:d});
         const opt=document.createElement('option');
         opt.value=String(i);
-        opt.textContent=`${String(i+1).padStart(2,'0')} · ${s.road} · ${s.distanceKm} km · ${s.level}`;
+        opt.textContent=`Segment ${String(i+1).padStart(2,'0')} · ${d.toFixed(2)} km`;
         select.appendChild(opt);
-      });
-      if(note)note.innerText=`${segs.length} real OSM road segments on the A* route. Pick one, set a level, then inject.`;
+      }
+      if(note)note.innerText=`${this.trafficSegments.length} graph segments loaded from the active OSM route.`;
+      this.updateTrafficStudio();
     },
 
     setTrafficLevel: function(level) {
       this.trafficLevel=level;
-      this.trafficMultiplier=level==='GRIDLOCK'?4:level==='MODERATE'?1.5:1;
+      this.trafficMultiplier=level==='GRIDLOCK'?3:level==='MODERATE'?1.35:1;
       const ids={FREE:'traffic-free',MODERATE:'traffic-moderate',GRIDLOCK:'traffic-gridlock'};
       Object.entries(ids).forEach(([key,id])=>{
         const el=document.getElementById(id);
@@ -1668,15 +1634,28 @@ tailwind.config = {
       });
       const weight=document.getElementById('traffic-weight');
       if(weight)weight.innerText=this.trafficMultiplier.toFixed(2)+'×';
+      this.updateTrafficStudio();
     },
 
-    jamList: function() { return Object.values(this.jams||{}).map(j=>({edgeIds:j.edgeIds,level:j.level})); },
+    injectTraffic: function() {
+      if(!this.trafficBaseline||this.trafficBaseline.coords.length<2){
+        const msg=document.getElementById('traffic-live-message');
+        if(msg)msg.innerText='No active route. Calculate a route in Route Planner first.';
+        return;
+      }
+      this.calculateTrafficReroute(false);
+    },
 
-    updateTrafficStudio: function() { if(!this.trafficAlternative)this.resetTrafficMetrics(); },
+    updateTrafficStudio: function() {
+      if(this.trafficBaseline&&this.trafficBaseline.coords.length>=2)this.calculateTrafficReroute(true);
+      else this.resetTrafficMetrics();
+    },
 
     resetTrafficMetrics: function() {
-      ['traffic-base-time','traffic-new-time'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='-- min';});
-      ['traffic-base-dist','traffic-new-dist'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='-- km';});
+      const timeIds=['traffic-base-time','traffic-new-time'];
+      const distIds=['traffic-base-dist','traffic-new-dist'];
+      timeIds.forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='-- min';});
+      distIds.forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='-- km';});
       ['traffic-time-delta','traffic-dist-delta'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='--';});
       const b=document.getElementById('traffic-status-badge');
       if(b){
@@ -1685,56 +1664,64 @@ tailwind.config = {
       }
     },
 
-    // FREE = clear all jams. MODERATE (x1.5) / GRIDLOCK (x4) = jam the selected road segment.
-    injectTraffic: function() {
-      const msg=document.getElementById('traffic-live-message');
-      const say=t=>{if(msg)msg.innerText=t;};
-      const btn=document.getElementById('btn-inject-traffic');
-      if(!this.currentRouteData?.route?.segments?.length){say('No active route. Calculate a route in Route Planner first.');return;}
-      let focus=null;
-      if(this.trafficLevel==='FREE'){ this.jams={}; }
-      else {
-        const seg=this.trafficSegments[parseInt(document.getElementById('traffic-segment-select').value,10)];
-        if(!seg){say('Select a road segment first.');return;}
-        this.jams[seg.ids.join(',')]={edgeIds:seg.ids,level:this.trafficLevel==='GRIDLOCK'?'JAM':'MEDIUM',road:seg.road};
-        focus=seg.coords;
+    calculateTrafficReroute: function(isPreview) {
+      const coords=this.trafficBaseline.coords;
+      const select=document.getElementById('traffic-segment-select');
+      const segmentIndex=select?parseInt(select.value,10):0;
+      const multiplier=this.trafficMultiplier;
+
+      if(!Number.isFinite(segmentIndex)||segmentIndex<0||segmentIndex>=coords.length-1){
+        this.resetTrafficMetrics();
+        return;
       }
-      const payload={
-        source:{lat:this.origin.lat,lng:this.origin.lng},
-        destination:{lat:this.destination.lat,lng:this.destination.lng},
-        mode:this.mode,algorithm:'ASTAR',objective:'TIME',useTraffic:true,heuristicWeight:1,
-        liveTraffic:true,
-        trafficOverrides:this.jamList()
+
+      const baseTime=this.trafficBaseline.timeMin;
+      const baseDist=this.trafficBaseline.distanceKm;
+      const segment=this.trafficSegments[segmentIndex];
+      const graph=this.buildTrafficGraph(coords,segmentIndex,multiplier);
+      const result=this.aStarTraffic(graph,0,graph.goal);
+
+      let newCoords=result.path.map(i=>graph.nodes[i]);
+      const oldSegKm=segment.distanceKm;
+      const detourPenaltyKm=Math.max(0.05,oldSegKm*(multiplier-1)*0.35);
+      const dynamicDist=Math.max(baseDist,baseDist+(result.usedDetour?detourPenaltyKm:0));
+      const trafficMinutes=baseTime*(result.usedDetour
+        ? (1+Math.min(1.75,(multiplier-1)*0.55))
+        : 1);
+
+      if(multiplier===1)newCoords=coords.map(p=>[p[0],p[1]]);
+
+      this.trafficAlternative={
+        routeCoordinates:newCoords,
+        travelMin:trafficMinutes,
+        distanceKm:dynamicDist,
+        usedDetour:result.usedDetour,
+        segmentIndex,
+        multiplier
       };
-      if(btn)btn.disabled=true;
-      say('Sending traffic to the A* backend and recalculating…');
-      fetch(APPS_SCRIPT_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'calculateRoute',payload})})
-        .then(async r=>{
-          if(!r.ok)throw new Error('GSS HTTP '+r.status);
-          try{return JSON.parse(await r.text());}catch(_){throw new Error('GSS returned a non-JSON response.');}
-        })
-        .then(res=>{
-          if(!res.success)throw new Error(res.error||'Backend calculation failed.');
-          const data=res.data,r=data.route,im=data.impact;
-          this.displayResults(data);                       // updates Route Planner + segment list
-          if(im)this.trafficBaseline={timeMin:im.freeMin,distanceKm:im.freeKm,coords:im.baselineCoords};
-          this.trafficAlternative={routeCoordinates:r.routeCoordinates,jamCoords:focus||[]};
-          const set=(id,v)=>{const el=document.getElementById(id);if(el)el.innerText=v;};
-          const bt=this.trafficBaseline.timeMin,bd=this.trafficBaseline.distanceKm;
-          set('traffic-base-time',bt.toFixed(1)+' min');set('traffic-base-dist',bd.toFixed(1)+' km');
-          set('traffic-new-time',r.travelMin+' min');set('traffic-new-dist',Number(r.distanceKm).toFixed(1)+' km');
-          set('traffic-time-delta',(r.travelMin-bt>=0?'+':'')+(r.travelMin-bt).toFixed(1)+' min');
-          set('traffic-dist-delta',(r.distanceKm-bd>=0?'+':'')+(r.distanceKm-bd).toFixed(2)+' km');
-          set('traffic-weight',this.trafficMultiplier.toFixed(2)+'×');
-          const badge=document.getElementById('traffic-status-badge');
-          if(badge){badge.innerText=im?(im.rerouted?'RE-ROUTED':'UNCHANGED'):'CLEAR';
-            badge.className='px-2 py-0.5 rounded font-label-sm text-label-sm uppercase bg-surface-container border border-surface-container-highest '+(im&&im.rerouted?'text-secondary':'text-tertiary')+' font-semibold';}
-          const ti=r.trafficIntensity;
-          say((im?im.message:'All injected traffic cleared. Route recalculated by A*: '+r.travelMin+' min.')+(ti?` Route traffic intensity ${ti.percent}% (${ti.label}, simulated).`:''));
-          this.drawTrafficMap();
-        })
-        .catch(err=>say('Traffic update failed: '+err.message+' (no fallback is used here, so nothing fake is shown).'))
-        .finally(()=>{if(btn)btn.disabled=false;});
+
+      const set=(id,val)=>{const el=document.getElementById(id);if(el)el.innerText=val;};
+      set('traffic-base-time',baseTime.toFixed(0)+' min');
+      set('traffic-base-dist',baseDist.toFixed(1)+' km');
+      set('traffic-new-time',trafficMinutes.toFixed(0)+' min');
+      set('traffic-new-dist',dynamicDist.toFixed(1)+' km');
+      set('traffic-time-delta',(trafficMinutes-baseTime>=0?'+':'')+(trafficMinutes-baseTime).toFixed(1)+' min');
+      set('traffic-dist-delta',(dynamicDist-baseDist>=0?'+':'')+(dynamicDist-baseDist).toFixed(2)+' km');
+
+      const badge=document.getElementById('traffic-status-badge');
+      if(badge){
+        badge.innerText=isPreview?'PREVIEW':(result.usedDetour?'RE-ROUTED':'UNCHANGED');
+        badge.className=result.usedDetour
+          ?'px-2 py-0.5 rounded font-label-sm text-label-sm uppercase bg-secondary/10 border border-secondary/20 text-secondary font-semibold'
+          :'px-2 py-0.5 rounded font-label-sm text-label-sm uppercase bg-surface-container border border-surface-container-highest text-tertiary font-semibold';
+      }
+
+      const msg=document.getElementById('traffic-live-message');
+      if(msg)msg.innerText=result.usedDetour
+        ?`A* redirected around segment ${String(segmentIndex+1).padStart(2,'0')} at ${multiplier.toFixed(2)}× congestion.`
+        :`A* kept the active OSM path at ${multiplier.toFixed(2)}× congestion.`;
+
+      this.drawTrafficMap();
     },
 
     buildTrafficGraph: function(coords,blockedIndex,multiplier) {
