@@ -472,6 +472,10 @@ tailwind.config = {
 
   // Supabase (browser-safe PUBLISHABLE key only; the secret key lives in Apps Script properties).
   // Route logging is done server-side by Code.gs, so no Supabase URL is needed in this file yet.
+  // TomTom key for the live-traffic map overlay (browser). Create it at developer.tomtom.com and restrict it
+  // to your Vercel domain. The SAME kind of key must also be stored in Apps Script as TOMTOM_API_KEY.
+  const TOMTOM_MAP_KEY = '';
+
   const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_TPAE2NyDvM_ZFlFpRz5wZA_I_wFvHIB';
 
   window.VectorNav = {
@@ -861,15 +865,23 @@ tailwind.config = {
       ensureGeoJson('vr-highlight-' + mapKind, {type:'FeatureCollection',features:[]});
       ensureGeoJson('vr-endpoints-' + mapKind, {type:'FeatureCollection',features:[]});
       ensureGeoJson('vr-nodes-' + mapKind, {type:'FeatureCollection',features:[]});
+      ensureGeoJson('vr-live-' + mapKind, {type:'FeatureCollection',features:[]});
+      if (TOMTOM_MAP_KEY && !map.getSource('tt-flow')) {   // live traffic colours painted on the roads themselves
+        map.addSource('tt-flow', { type:'raster', tileSize:256, tiles:['https://api.tomtom.com/traffic/map/4/tile/flow/relative/{z}/{x}/{y}.png?tileSize=256&key=' + TOMTOM_MAP_KEY], attribution:'Traffic &copy; TomTom' });
+        map.addLayer({ id:'tt-flow-layer', type:'raster', source:'tt-flow', paint:{'raster-opacity':0.8} });
+      }
 
       if (!map.getLayer('vr-baseline-line-' + mapKind)) {
         map.addLayer({ id:'vr-baseline-line-' + mapKind, type:'line', source:'vr-baseline-' + mapKind, layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#6b7476','line-width':4,'line-opacity':0.75,'line-dasharray':[2,2]} });
       }
       if (!map.getLayer('vr-route-line-' + mapKind)) {
-        map.addLayer({ id:'vr-route-line-' + mapKind, type:'line', source:'vr-route-' + mapKind, layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#4cd7f6','line-width':['interpolate',['linear'],['zoom'],8,3,14,5,18,7],'line-opacity':0.96} });
+        map.addLayer({ id:'vr-route-line-' + mapKind, type:'line', source:'vr-route-' + mapKind, layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':['match',['get','level'],'LOW','#4edea3','MEDIUM','#fbbf24','HIGH','#ef4444','JAM','#b91c1c','#4cd7f6'],'line-width':['interpolate',['linear'],['zoom'],8,3,14,5,18,7],'line-opacity':0.96} });
       }
       if (!map.getLayer('vr-highlight-line-' + mapKind)) {
         map.addLayer({ id:'vr-highlight-line-' + mapKind, type:'line', source:'vr-highlight-' + mapKind, layout:{'line-cap':'round','line-join':'round'}, paint:{'line-color':'#ffb4ab','line-width':['interpolate',['linear'],['zoom'],8,6,14,9,18,12],'line-opacity':0.72,'line-blur':1.2} });
+      }
+      if (!map.getLayer('vr-live-circle-' + mapKind)) {   // one dot per live TomTom sample: green LOW / amber MODERATE / red HEAVY
+        map.addLayer({ id:'vr-live-circle-' + mapKind, type:'circle', source:'vr-live-' + mapKind, paint:{'circle-radius':7,'circle-color':['match',['get','level'],'LOW','#4edea3','MEDIUM','#fbbf24','HIGH','#ef4444','JAM','#b91c1c','#9ca3af'],'circle-stroke-color':'#0e0e10','circle-stroke-width':2} });
       }
       if (!map.getLayer('vr-endpoint-circle-' + mapKind)) {
         map.addLayer({ id:'vr-endpoint-circle-' + mapKind, type:'circle', source:'vr-endpoints-' + mapKind, paint:{'circle-radius':9,'circle-color':['match',['get','kind'],'A','#4edea3','B','#ffb4ab','#4cd7f6'],'circle-stroke-color':'#0e0e10','circle-stroke-width':2} });
@@ -1193,6 +1205,7 @@ tailwind.config = {
         objective: this.objective,
         useTraffic: document.getElementById('check-traffic-penalty').checked,
         heuristicWeight: 1,
+        liveTraffic: true,
         trafficOverrides: this.jamList()
       };
 
@@ -1354,7 +1367,13 @@ tailwind.config = {
       
       const tr = document.getElementById('res-traffic');
       const ti = r.trafficIntensity;   // computed by Code.gs from edge multipliers (simulated traffic)
-      tr.innerText = ti ? (r.trafficLevel + ' · ' + ti.percent + '%') : r.trafficLevel;
+      const WORD={LOW:'LOW',MEDIUM:'MODERATE',HIGH:'HEAVY'}, lw=WORD[r.trafficLevel]||r.trafficLevel;
+      tr.innerText = ti ? (lw + ' · ' + ti.percent + '%') : lw;
+      const ls=data.live&&data.live.status, alertEl=document.getElementById('error-alert');
+      if(alertEl&&ls&&['no-key','auth-error','quota'].includes(ls)){
+        alertEl.innerText=({'no-key':'Live traffic is OFF: no TomTom key in Apps Script, so SIMULATED traffic is used.','auth-error':'Live traffic failed: TomTom rejected the API key. Showing free-flow roads.','quota':'Live traffic quota reached. Showing partial data.'})[ls];
+        alertEl.classList.remove('hidden');
+      }
       tr.title = ti ? ('Traffic intensity ' + ti.percent + '% (' + ti.label + '), +' + ti.delayMin + ' min delay, ' + ti.highShare + '% of route on HIGH roads. Simulated, not live.') : '';
       tr.className = `font-headline-md text-headline-md font-bold ${r.trafficLevel === 'HIGH' ? 'text-error' : r.trafficLevel === 'LOW' ? 'text-secondary' : 'text-tertiary'}`;
 
@@ -1450,6 +1469,16 @@ tailwind.config = {
         .filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]));
     },
 
+    routeFeatures: function(route) {   // one coloured feature per road segment (level comes from live/sim traffic)
+      const segs=(route?.segments||[]).filter(s=>Array.isArray(s.coords)&&s.coords.length>=2);
+      if(segs.length) return segs.map(s=>this.lineFeature(s.coords,{level:s.level})).filter(Boolean);
+      const l=this.lineFeature(route?.routeCoordinates||[]); return l?[l]:[];
+    },
+    liveGeoJSON: function(data) {
+      const f=(data?.live?.samples||[]).map(s=>({type:'Feature',properties:{level:s.level},geometry:{type:'Point',coordinates:[s.lng,s.lat]}}));
+      return {type:'FeatureCollection',features:f};
+    },
+
     lineFeature: function(coords, props={}) {
       const line = this.coordsToLine(coords);
       if (line.length < 2) return null;
@@ -1481,8 +1510,8 @@ tailwind.config = {
       if(!map || !this.mainMapReady) return;
       try{ map.resize(); }catch(e){}
       const coords=Array.isArray(data?.route?.routeCoordinates) ? data.route.routeCoordinates : [];
-      const line=this.lineFeature(coords);
-      this.setMapSourceData(map,'vr-route-main',{type:'FeatureCollection',features:line?[line]:[]});
+      this.setMapSourceData(map,'vr-route-main',{type:'FeatureCollection',features:this.routeFeatures(data?.route)});
+      this.setMapSourceData(map,'vr-live-main',this.liveGeoJSON(data));
       this.setMapSourceData(map,'vr-baseline-main',{type:'FeatureCollection',features:[]});
       this.setMapSourceData(map,'vr-highlight-main',{type:'FeatureCollection',features:[]});
       this.setMapSourceData(map,'vr-endpoints-main',this.endpointsFeature());
@@ -1507,7 +1536,9 @@ tailwind.config = {
       const altFeature=this.lineFeature(alt,{role:'active'});
       const hiFeature=this.lineFeature(highlight,{role:'selected'});
       this.setMapSourceData(map,'vr-baseline-traffic',{type:'FeatureCollection',features:baseFeature?[baseFeature]:[]});
-      this.setMapSourceData(map,'vr-route-traffic',{type:'FeatureCollection',features:altFeature?[altFeature]:[]});
+      const rf=this.routeFeatures(this.currentRouteData?.route);
+      this.setMapSourceData(map,'vr-route-traffic',{type:'FeatureCollection',features:rf.length?rf:(altFeature?[altFeature]:[])});
+      this.setMapSourceData(map,'vr-live-traffic',this.liveGeoJSON(this.currentRouteData));
       this.setMapSourceData(map,'vr-highlight-traffic',{type:'FeatureCollection',features:hiFeature?[hiFeature]:[]});
       this.setMapSourceData(map,'vr-endpoints-traffic',this.endpointsFeature());
       this.ensureLocationMarkers(map, 'traffic');
@@ -1672,6 +1703,7 @@ tailwind.config = {
         source:{lat:this.origin.lat,lng:this.origin.lng},
         destination:{lat:this.destination.lat,lng:this.destination.lng},
         mode:this.mode,algorithm:'ASTAR',objective:'TIME',useTraffic:true,heuristicWeight:1,
+        liveTraffic:true,
         trafficOverrides:this.jamList()
       };
       if(btn)btn.disabled=true;
