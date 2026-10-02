@@ -1257,24 +1257,45 @@ tailwind.config = {
       .then(async r => {
         const raw = await r.text();
         if (!r.ok) throw new Error('GSS HTTP ' + r.status);
-        try { return JSON.parse(raw); }
-        catch (_) { throw new Error('GSS returned a non-JSON response.'); }
+        try {
+          return JSON.parse(raw);
+        } catch (_) {
+          throw new Error('GSS returned non-JSON. Check Web App deployment/access and doPost().');
+        }
       })
       .then(res => {
-        if (!res.success) throw new Error(res.error || 'Backend calculation failed.');
+        if (!res || res.success !== true) {
+          throw new Error(res?.error || 'Backend calculation failed.');
+        }
+
         const data = res.data || {};
         const route = data.route || {};
-        if (route.graphOptimized === true && Array.isArray(route.routeCoordinates) && route.routeCoordinates.length >= 2) {
+        const gssCoords = Array.isArray(route.routeCoordinates)
+          ? route.routeCoordinates
+              .map(p => Array.isArray(p) && p.length >= 2 ? [Number(p[0]), Number(p[1])] : null)
+              .filter(p => p && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+          : [];
+
+        // IMPORTANT: if Apps Script already returned valid route geometry,
+        // use it directly. Do NOT require a graphOptimized flag.
+        if (gssCoords.length >= 2) {
+          data.route = Object.assign({}, route, {
+            routeCoordinates: gssCoords,
+            graphOptimized: route.graphOptimized === true,
+            routingSource: route.routingSource || data.routingSource || 'GSS BACKEND'
+          });
           this.routeCandidates = [{
-            routeCoordinates: route.routeCoordinates,
-            distance: (Number(route.distanceKm)||0)*1000,
-            duration: (Number(route.travelMin)||0)*60,
-            source: 'GSS GRAPH'
+            coords: gssCoords,
+            distance: (Number(route.distanceKm) || 0) * 1000,
+            duration: (Number(route.travelMin) || 0) * 60,
+            source: 'GSS BACKEND'
           }];
           this.displayResults(data);
           return null;
         }
 
+        // Backend answered successfully but did not supply geometry.
+        // Only then ask OSRM for real OSM road geometry.
         return this.fetchOSMRoute(payload).then(osmData => {
           const merged = Object.assign({}, data, {
             route: Object.assign({}, route, osmData.route),
@@ -1284,12 +1305,13 @@ tailwind.config = {
         });
       })
       .catch(err => {
-        console.warn("Backend route request failed; resolving route geometry from OSM:", err);
+        console.warn('GSS route request failed; trying OSM geometry as fallback:', err);
         return this.fetchOSMRoute(payload)
           .then(data => this.displayResults(data))
           .catch(osmErr => {
-            console.error("OSM routing failed:", osmErr);
-            errAlert.innerText = "Routing error: Could not obtain real road geometry. Please try again.";
+            console.error('GSS error:', err);
+            console.error('OSM routing error:', osmErr);
+            errAlert.innerText = 'Routing error: ' + (err?.message || 'GSS failed') + ' | OSM fallback: ' + (osmErr?.message || 'unavailable');
             errAlert.classList.remove('hidden');
           });
       })
