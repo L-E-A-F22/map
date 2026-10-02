@@ -484,6 +484,7 @@ tailwind.config = {
     trafficAlternative: null,
     trafficBaseline: null,
     trafficSegments: [],
+    jams: {},
     mainMap: null,
     trafficMap: null,
     mainMapReady: false,
@@ -1191,7 +1192,8 @@ tailwind.config = {
         algorithm: this.objective === 'TIME' ? 'ASTAR' : 'DIJKSTRA',
         objective: this.objective,
         useTraffic: document.getElementById('check-traffic-penalty').checked,
-        heuristicWeight: 1
+        heuristicWeight: 1,
+        trafficOverrides: this.jamList()
       };
 
       btn.disabled = true;
@@ -1500,7 +1502,7 @@ tailwind.config = {
       const base=this.trafficBaseline?.coords || [];
       const alt=this.trafficAlternative?.routeCoordinates || base;
       const selected=this.trafficAlternative?.segmentIndex ?? -1;
-      const highlight=(selected>=0 && base[selected] && base[selected+1]) ? [base[selected],base[selected+1]] : [];
+      const highlight=this.trafficAlternative?.jamCoords||[];
       const baseFeature=this.lineFeature(base,{role:'baseline'});
       const altFeature=this.lineFeature(alt,{role:'active'});
       const hiFeature=this.lineFeature(highlight,{role:'selected'});
@@ -1598,38 +1600,33 @@ tailwind.config = {
       this.populateTrafficSegments();
     },
 
+    // ---- Traffic Intel: jams are sent to the Apps Script A* backend (no client-side fake rerouting) ----
     populateTrafficSegments: function() {
       const select=document.getElementById('traffic-segment-select');
       if(!select)return;
       const note=document.getElementById('traffic-segment-note');
-      const coords=this.trafficBaseline?.coords||[];
+      const segs=(this.currentRouteData?.route?.segments||[]).filter(s=>Array.isArray(s.ids)&&s.ids.length);
+      this.trafficSegments=segs;
       select.innerHTML='';
-      this.trafficSegments=[];
-      if(coords.length<2){
+      if(!segs.length){
         const opt=document.createElement('option');
-        opt.value='-1';
-        opt.textContent='No route segments yet';
-        select.appendChild(opt);
-        if(note)note.innerText='Calculate a route first to populate road segments.';
+        opt.value='-1';opt.textContent='No route segments yet';select.appendChild(opt);
+        if(note)note.innerText=this.currentRouteData?'This route did not come from the A* backend, so traffic cannot be injected. Check the Apps Script URL.':'Calculate a route first to populate road segments.';
         this.resetTrafficMetrics();
         return;
       }
-
-      for(let i=0;i<coords.length-1;i++){
-        const d=this.haversineKm(coords[i],coords[i+1]);
-        this.trafficSegments.push({index:i,a:coords[i],b:coords[i+1],distanceKm:d});
+      segs.forEach((s,i)=>{
         const opt=document.createElement('option');
         opt.value=String(i);
-        opt.textContent=`Segment ${String(i+1).padStart(2,'0')} · ${d.toFixed(2)} km`;
+        opt.textContent=`${String(i+1).padStart(2,'0')} · ${s.road} · ${s.distanceKm} km · ${s.level}`;
         select.appendChild(opt);
-      }
-      if(note)note.innerText=`${this.trafficSegments.length} graph segments loaded from the active OSM route.`;
-      this.updateTrafficStudio();
+      });
+      if(note)note.innerText=`${segs.length} real OSM road segments on the A* route. Pick one, set a level, then inject.`;
     },
 
     setTrafficLevel: function(level) {
       this.trafficLevel=level;
-      this.trafficMultiplier=level==='GRIDLOCK'?3:level==='MODERATE'?1.35:1;
+      this.trafficMultiplier=level==='GRIDLOCK'?4:level==='MODERATE'?1.5:1;
       const ids={FREE:'traffic-free',MODERATE:'traffic-moderate',GRIDLOCK:'traffic-gridlock'};
       Object.entries(ids).forEach(([key,id])=>{
         const el=document.getElementById(id);
@@ -1640,28 +1637,15 @@ tailwind.config = {
       });
       const weight=document.getElementById('traffic-weight');
       if(weight)weight.innerText=this.trafficMultiplier.toFixed(2)+'×';
-      this.updateTrafficStudio();
     },
 
-    injectTraffic: function() {
-      if(!this.trafficBaseline||this.trafficBaseline.coords.length<2){
-        const msg=document.getElementById('traffic-live-message');
-        if(msg)msg.innerText='No active route. Calculate a route in Route Planner first.';
-        return;
-      }
-      this.calculateTrafficReroute(false);
-    },
+    jamList: function() { return Object.values(this.jams||{}).map(j=>({edgeIds:j.edgeIds,level:j.level})); },
 
-    updateTrafficStudio: function() {
-      if(this.trafficBaseline&&this.trafficBaseline.coords.length>=2)this.calculateTrafficReroute(true);
-      else this.resetTrafficMetrics();
-    },
+    updateTrafficStudio: function() { if(!this.trafficAlternative)this.resetTrafficMetrics(); },
 
     resetTrafficMetrics: function() {
-      const timeIds=['traffic-base-time','traffic-new-time'];
-      const distIds=['traffic-base-dist','traffic-new-dist'];
-      timeIds.forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='-- min';});
-      distIds.forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='-- km';});
+      ['traffic-base-time','traffic-new-time'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='-- min';});
+      ['traffic-base-dist','traffic-new-dist'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='-- km';});
       ['traffic-time-delta','traffic-dist-delta'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='--';});
       const b=document.getElementById('traffic-status-badge');
       if(b){
@@ -1670,64 +1654,55 @@ tailwind.config = {
       }
     },
 
-    calculateTrafficReroute: function(isPreview) {
-      const coords=this.trafficBaseline.coords;
-      const select=document.getElementById('traffic-segment-select');
-      const segmentIndex=select?parseInt(select.value,10):0;
-      const multiplier=this.trafficMultiplier;
-
-      if(!Number.isFinite(segmentIndex)||segmentIndex<0||segmentIndex>=coords.length-1){
-        this.resetTrafficMetrics();
-        return;
-      }
-
-      const baseTime=this.trafficBaseline.timeMin;
-      const baseDist=this.trafficBaseline.distanceKm;
-      const segment=this.trafficSegments[segmentIndex];
-      const graph=this.buildTrafficGraph(coords,segmentIndex,multiplier);
-      const result=this.aStarTraffic(graph,0,graph.goal);
-
-      let newCoords=result.path.map(i=>graph.nodes[i]);
-      const oldSegKm=segment.distanceKm;
-      const detourPenaltyKm=Math.max(0.05,oldSegKm*(multiplier-1)*0.35);
-      const dynamicDist=Math.max(baseDist,baseDist+(result.usedDetour?detourPenaltyKm:0));
-      const trafficMinutes=baseTime*(result.usedDetour
-        ? (1+Math.min(1.75,(multiplier-1)*0.55))
-        : 1);
-
-      if(multiplier===1)newCoords=coords.map(p=>[p[0],p[1]]);
-
-      this.trafficAlternative={
-        routeCoordinates:newCoords,
-        travelMin:trafficMinutes,
-        distanceKm:dynamicDist,
-        usedDetour:result.usedDetour,
-        segmentIndex,
-        multiplier
-      };
-
-      const set=(id,val)=>{const el=document.getElementById(id);if(el)el.innerText=val;};
-      set('traffic-base-time',baseTime.toFixed(0)+' min');
-      set('traffic-base-dist',baseDist.toFixed(1)+' km');
-      set('traffic-new-time',trafficMinutes.toFixed(0)+' min');
-      set('traffic-new-dist',dynamicDist.toFixed(1)+' km');
-      set('traffic-time-delta',(trafficMinutes-baseTime>=0?'+':'')+(trafficMinutes-baseTime).toFixed(1)+' min');
-      set('traffic-dist-delta',(dynamicDist-baseDist>=0?'+':'')+(dynamicDist-baseDist).toFixed(2)+' km');
-
-      const badge=document.getElementById('traffic-status-badge');
-      if(badge){
-        badge.innerText=isPreview?'PREVIEW':(result.usedDetour?'RE-ROUTED':'UNCHANGED');
-        badge.className=result.usedDetour
-          ?'px-2 py-0.5 rounded font-label-sm text-label-sm uppercase bg-secondary/10 border border-secondary/20 text-secondary font-semibold'
-          :'px-2 py-0.5 rounded font-label-sm text-label-sm uppercase bg-surface-container border border-surface-container-highest text-tertiary font-semibold';
-      }
-
+    // FREE = clear all jams. MODERATE (x1.5) / GRIDLOCK (x4) = jam the selected road segment.
+    injectTraffic: function() {
       const msg=document.getElementById('traffic-live-message');
-      if(msg)msg.innerText=result.usedDetour
-        ?`A* redirected around segment ${String(segmentIndex+1).padStart(2,'0')} at ${multiplier.toFixed(2)}× congestion.`
-        :`A* kept the active OSM path at ${multiplier.toFixed(2)}× congestion.`;
-
-      this.drawTrafficMap();
+      const say=t=>{if(msg)msg.innerText=t;};
+      const btn=document.getElementById('btn-inject-traffic');
+      if(!this.currentRouteData?.route?.segments?.length){say('No active route. Calculate a route in Route Planner first.');return;}
+      let focus=null;
+      if(this.trafficLevel==='FREE'){ this.jams={}; }
+      else {
+        const seg=this.trafficSegments[parseInt(document.getElementById('traffic-segment-select').value,10)];
+        if(!seg){say('Select a road segment first.');return;}
+        this.jams[seg.ids.join(',')]={edgeIds:seg.ids,level:this.trafficLevel==='GRIDLOCK'?'JAM':'MEDIUM',road:seg.road};
+        focus=seg.coords;
+      }
+      const payload={
+        source:{lat:this.origin.lat,lng:this.origin.lng},
+        destination:{lat:this.destination.lat,lng:this.destination.lng},
+        mode:this.mode,algorithm:'ASTAR',objective:'TIME',useTraffic:true,heuristicWeight:1,
+        trafficOverrides:this.jamList()
+      };
+      if(btn)btn.disabled=true;
+      say('Sending traffic to the A* backend and recalculating…');
+      fetch(APPS_SCRIPT_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'calculateRoute',payload})})
+        .then(async r=>{
+          if(!r.ok)throw new Error('GSS HTTP '+r.status);
+          try{return JSON.parse(await r.text());}catch(_){throw new Error('GSS returned a non-JSON response.');}
+        })
+        .then(res=>{
+          if(!res.success)throw new Error(res.error||'Backend calculation failed.');
+          const data=res.data,r=data.route,im=data.impact;
+          this.displayResults(data);                       // updates Route Planner + segment list
+          if(im)this.trafficBaseline={timeMin:im.freeMin,distanceKm:im.freeKm,coords:im.baselineCoords};
+          this.trafficAlternative={routeCoordinates:r.routeCoordinates,jamCoords:focus||[]};
+          const set=(id,v)=>{const el=document.getElementById(id);if(el)el.innerText=v;};
+          const bt=this.trafficBaseline.timeMin,bd=this.trafficBaseline.distanceKm;
+          set('traffic-base-time',bt.toFixed(1)+' min');set('traffic-base-dist',bd.toFixed(1)+' km');
+          set('traffic-new-time',r.travelMin+' min');set('traffic-new-dist',Number(r.distanceKm).toFixed(1)+' km');
+          set('traffic-time-delta',(r.travelMin-bt>=0?'+':'')+(r.travelMin-bt).toFixed(1)+' min');
+          set('traffic-dist-delta',(r.distanceKm-bd>=0?'+':'')+(r.distanceKm-bd).toFixed(2)+' km');
+          set('traffic-weight',this.trafficMultiplier.toFixed(2)+'×');
+          const badge=document.getElementById('traffic-status-badge');
+          if(badge){badge.innerText=im?(im.rerouted?'RE-ROUTED':'UNCHANGED'):'CLEAR';
+            badge.className='px-2 py-0.5 rounded font-label-sm text-label-sm uppercase bg-surface-container border border-surface-container-highest '+(im&&im.rerouted?'text-secondary':'text-tertiary')+' font-semibold';}
+          const ti=r.trafficIntensity;
+          say((im?im.message:'All injected traffic cleared. Route recalculated by A*: '+r.travelMin+' min.')+(ti?` Route traffic intensity ${ti.percent}% (${ti.label}, simulated).`:''));
+          this.drawTrafficMap();
+        })
+        .catch(err=>say('Traffic update failed: '+err.message+' (no fallback is used here, so nothing fake is shown).'))
+        .finally(()=>{if(btn)btn.disabled=false;});
     },
 
     buildTrafficGraph: function(coords,blockedIndex,multiplier) {
