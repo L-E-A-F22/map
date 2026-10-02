@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html class="dark" lang="en">
 <head>
+<meta name="vr-build" content="TN-DYNAMIC-TRAFFIC-V4-GSS-MAP-SYNC-2026-10-02">
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>RAIL // NAV - Vector Route</title>
@@ -1924,15 +1925,15 @@ tailwind.config = {
         }
       } else {
         const graph=this.buildTrafficGraph(coords,segmentIndex,multiplier);
-        const result=this.aStarTraffic(graph,0,graph.goal);
-        newCoords=result.path.map(i=>graph.nodes[i]);
+        const searchResult=this.aStarTraffic(graph,0,graph.goal);
+        newCoords=searchResult.path.map(i=>graph.nodes[i]);
         const oldSegKm=segment.distanceKm;
         const detourPenaltyKm=Math.max(0.05,oldSegKm*(multiplier-1)*0.35);
-        dynamicDist=Math.max(baseDist,baseDist+(result.usedDetour?detourPenaltyKm:0));
-        trafficMinutes=baseTime*(result.usedDetour
+        dynamicDist=Math.max(baseDist,baseDist+(searchResult.usedDetour?detourPenaltyKm:0));
+        trafficMinutes=baseTime*(searchResult.usedDetour
           ? (1+Math.min(1.75,(multiplier-1)*0.55))
           : 1);
-        usedDetour=result.usedDetour;
+        usedDetour=searchResult.usedDetour;
         if(multiplier===1)newCoords=coords.map(p=>[p[0],p[1]]);
       }
 
@@ -1956,14 +1957,14 @@ tailwind.config = {
 
       const badge=document.getElementById('traffic-status-badge');
       if(badge){
-        badge.innerText=isPreview?'PREVIEW':(result.usedDetour?'RE-ROUTED':'UNCHANGED');
-        badge.className=result.usedDetour
+        badge.innerText=isPreview?'PREVIEW':(usedDetour?'RE-ROUTED':'UNCHANGED');
+        badge.className=usedDetour
           ?'px-2 py-0.5 rounded font-label-sm text-label-sm uppercase bg-secondary/10 border border-secondary/20 text-secondary font-semibold'
           :'px-2 py-0.5 rounded font-label-sm text-label-sm uppercase bg-surface-container border border-surface-container-highest text-tertiary font-semibold';
       }
 
       const msg=document.getElementById('traffic-live-message');
-      if(msg)msg.innerText=result.usedDetour
+      if(msg)msg.innerText=usedDetour
         ?`A* redirected around segment ${String(segmentIndex+1).padStart(2,'0')} at ${multiplier.toFixed(2)}× congestion.`
         :`A* kept the active OSM path at ${multiplier.toFixed(2)}× congestion.`;
 
